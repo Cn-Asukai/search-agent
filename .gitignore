@@ -5,6 +5,3 @@ node_modules/
 websearch-mcpserver-windows-amd64.exe
 websearch.log
 .websearch.pid
-# docker compose 本地环境变量(样例见 docker/.env.example)
-docker/.env
-

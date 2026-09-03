@@ -8,4 +8,6 @@ npm-debug.log
 websearch-mcpserver-*.exe
 websearch.log
 .websearch.pid
-docker/README.md
+docker-compose.yml
+README.md
+websearch.config.yaml

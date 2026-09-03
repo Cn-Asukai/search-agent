@@ -1,5 +1,5 @@
-import { Effect, Layer, Duration, Fiber, Stream, Schedule, Option, Schema, Config } from "effect"
-import { NodeHttpServer, NodeRuntime } from "@effect/platform-node"
+import { Effect, Layer, Duration, Fiber, Stream, Schedule, Option, Schema } from "effect"
+import { NodeHttpServer } from "@effect/platform-node"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
 import { AppConfig, AppConfigLive, type AppConfigService } from "./env.js"
@@ -57,7 +57,6 @@ const healthRoute = HttpRouter.add("GET", "/health", () =>
       status: health.ok ? "ok" : "degraded",
       service: "search-agent",
       opencode: {
-        mode: opencode.mode,
         url: opencode.url,
         healthy: health.ok,
         version: health.version,
@@ -243,7 +242,7 @@ const program = Effect.gen(function* () {
   const opencode = yield* OpenCode
   const bridge = yield* EventBridge
 
-  console.log(`[search-agent] opencode: ${opencode.mode} @ ${opencode.url}`)
+  console.log(`[search-agent] opencode: embedded @ ${opencode.url}`)
   console.log(
     `[search-agent] 并发上限 ${config.maxConcurrency},单任务超时 ${Duration.toMillis(config.taskTimeout) / 1000}s,` +
       `agent=${config.opencodeAgent}${config.opencodeModel ? `,模型=${config.opencodeModel}` : "(模型取自 opencode.jsonc)"}`,

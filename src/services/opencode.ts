@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, Redacted } from "effect"
+import { Context, Effect, Layer } from "effect"
 import {
   createOpencodeClient,
   createOpencodeServer,
@@ -12,14 +12,12 @@ import { searchResultJsonSchema } from "../domain/search.js"
 
 // ─────────────────────────────────────────────────────────────
 // OpenCode 服务:封装 @opencode-ai/sdk 客户端
-//  - 内嵌模式:自动 spawn `opencode serve`(要求 opencode CLI 在 PATH 中)
-//  - 外部模式:OPENCODE_BASE_URL 指向已运行的 `opencode serve`
-//  - promptAsync 异步提交(避免同步长连接被超时掐断)
+//  仅内嵌:自动 spawn `opencode serve`(要求 opencode CLI 在 PATH 中)
+//  promptAsync 异步提交(避免同步长连接被超时掐断)
 // ─────────────────────────────────────────────────────────────
 
 export class OpenCode extends Context.Service<OpenCode, {
   readonly client: OpencodeClient
-  readonly mode: "embedded" | "external"
   readonly url: string
   readonly close: () => void
 }>()("OpenCode") {}
@@ -28,39 +26,16 @@ export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = Layer.effec
   OpenCode
 )(Effect.gen(function* () {
   const config = yield* AppConfig
-  if (config.opencodeBaseUrl) {
-    return yield* connectExternal(config.opencodeBaseUrl)
-  }
-  return yield* connectEmbedded(config.opencodeHostname, config.opencodePort)
-}))
-
-function connectExternal(baseUrl: string) {
-  return Effect.gen(function* () {
-    const client = createOpencodeClient({ baseUrl })
-    const health = yield* Effect.tryPromise(() => client.global.health())
-    if (health.error) {
-      return yield* Effect.fail(
-        new Error(`无法连接外部 opencode server(${baseUrl}):${JSON.stringify(health.error)}`),
-      )
-    }
-    return { client, mode: "external" as const, url: baseUrl, close: () => {} }
-  })
-}
-
-function connectEmbedded(hostname: string, port: number) {
-  return Effect.tryPromise(() => createOpencodeServer({ hostname, port, timeout: 60_000 })).pipe(
+  return yield* Effect.tryPromise(() =>
+    createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
+  ).pipe(
     Effect.mapError((err) => new Error(hintEmbeddedError(err))),
     Effect.map((server) => {
       const client = createOpencodeClient({ baseUrl: server.url })
-      return {
-        client,
-        mode: "embedded" as const,
-        url: server.url,
-        close: () => server.close(),
-      }
+      return { client, url: server.url, close: () => server.close() }
     }),
   )
-}
+}))
 
 function hintEmbeddedError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)

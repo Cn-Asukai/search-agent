@@ -2,15 +2,33 @@
   "$schema": "https://opencode.ai/config.json",
 
   // ══════════════════════════════════════════════════════════════════
-  // ① 模型配置(必填)
-  //    取消下一行注释,填入你的模型,格式为 "provider/model-id",例如:
-  //      "model": "zai/glm-4.7"
-  //      "model": "anthropic/claude-sonnet-4-5"
-  //      "model": "deepseek/deepseek-chat"
-  //    然后运行 `opencode auth login` 选择对应 provider 并填入 API key。
-  //    也可以不改这里,改用环境变量 OPENCODE_MODEL=provider/model-id 强制指定。
+  // ① 模型配置
+  //    推荐:在 .env 里填 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL,
+  //    本文件的 custom provider 会把它们接到任意 OpenAI 兼容网关。
+  //    也可以改用官方 provider:取消下一行注释并运行 `opencode auth login`,
+  //    或设 OPENCODE_MODEL=provider/model-id 强制指定。
   // ══════════════════════════════════════════════════════════════════
-  // "model": "zai/glm-4.7",
+  // "model": "custom/default",
+
+  "provider": {
+    "custom": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "Custom",
+      "env": ["LLM_API_KEY"],
+      "options": {
+        "baseURL": "{env:LLM_BASE_URL}",
+        "apiKey": "{env:LLM_API_KEY}"
+      },
+      "models": {
+        "default": {
+          "modelID": "{env:LLM_MODEL}",
+          "name": "{env:LLM_MODEL}",
+          "limit": { "context": 128000, "output": 8192 },
+          "modalities": { "input": ["text", "image"], "output": ["text"] }
+        }
+      }
+    }
+  },
 
   // ══════════════════════════════════════════════════════════════════
   // ② 联网搜索 MCP(websearch-mcpserver)

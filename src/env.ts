@@ -26,7 +26,6 @@ const intOrZeroConfig = (name: string, fallback: number): Config.Config<number> 
 export class AppConfig extends Context.Service<AppConfig, {
   readonly port: number
   readonly host: string
-  readonly opencodeBaseUrl: string | undefined
   readonly opencodeHostname: string
   readonly opencodePort: number
   readonly opencodeModel: string | undefined
@@ -46,15 +45,15 @@ export const AppConfigLive: Layer.Layer<AppConfig, Config.ConfigError> = Layer.e
     const taskTimeoutMs = yield* intConfig("TASK_TIMEOUT_MS", 5 * 60_000)
     const syncMaxWaitMs = yield* intConfig("SYNC_MAX_WAIT_MS", 30 * 60_000)
     const apiAuthKey = yield* Config.option(Config.redacted("API_AUTH_KEY"))
-    const opencodeModel = yield* Config.option(Config.string("OPENCODE_MODEL"))
-    const opencodeBaseUrl = yield* Config.option(Config.string("OPENCODE_BASE_URL"))
+    const opencodeModel = nonempty(yield* Config.option(Config.string("OPENCODE_MODEL")))
+    const llmModel = nonempty(yield* Config.option(Config.string("LLM_MODEL")))
     return {
       port: yield* intConfig("PORT", 8787),
       host: yield* Config.string("HOST").pipe(Config.withDefault("0.0.0.0")),
-      opencodeBaseUrl: toUndefined(opencodeBaseUrl),
       opencodeHostname: yield* Config.string("OPENCODE_HOSTNAME").pipe(Config.withDefault("127.0.0.1")),
       opencodePort: yield* intOrZeroConfig("OPENCODE_PORT", 0),
-      opencodeModel: toUndefined(opencodeModel),
+      // 自定义网关走 opencode.jsonc 的 custom/default,真正发给上游的是 LLM_MODEL
+      opencodeModel: opencodeModel ?? (llmModel ? "custom/default" : undefined),
       opencodeAgent: yield* Config.string("OPENCODE_AGENT").pipe(Config.withDefault("hanhua-search")),
       taskTimeout: Duration.millis(taskTimeoutMs),
       maxConcurrency: yield* intConfig("MAX_CONCURRENCY", 3),
@@ -65,4 +64,9 @@ export const AppConfigLive: Layer.Layer<AppConfig, Config.ConfigError> = Layer.e
 
 function toUndefined<A>(option: { readonly _tag: "Some"; readonly value: A } | { readonly _tag: "None" }): A | undefined {
   return option._tag === "Some" ? option.value : undefined
+}
+
+function nonempty(option: { readonly _tag: "Some"; readonly value: string } | { readonly _tag: "None" }): string | undefined {
+  const value = toUndefined(option)?.trim()
+  return value ? value : undefined
 }
