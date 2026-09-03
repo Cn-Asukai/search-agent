@@ -18,10 +18,10 @@
       },
       "models": {
         "default": {
-          "modelID": "{env:LLM_MODEL}",
+          "id": "{env:LLM_MODEL}",
           "name": "{env:LLM_MODEL}",
-          "limit": { "context": 128000, "output": 8192 },
-          "modalities": { "input": ["text", "image"], "output": ["text"] }
+          "limit": { "context": 1000000, "output": 128000 },
+          "modalities": { "input": ["text"], "output": ["text"] }
         }
       }
     }
