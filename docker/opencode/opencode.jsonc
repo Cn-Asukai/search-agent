@@ -1,0 +1,48 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ══════════════════════════════════════════════════════════════════
+  // ① 模型配置(必填)
+  //    容器内默认无 model,由环境变量 OPENCODE_MODEL 强制指定(见 docker-compose.yml)。
+  //    模型的 provider + API key 来自用户级配置 $HOME/.config/opencode/config.json
+  //    (docker/opencode/config.json,见其注释),容器内不执行 `opencode auth login`。
+  //    示例(取消注释并同步配置 provider):
+  //      "model": "deepseek/deepseek-chat"
+  // ══════════════════════════════════════════════════════════════════
+
+  // ══════════════════════════════════════════════════════════════════
+  // ② 联网搜索 MCP(websearch-mcpserver 容器)
+  //    compose 服务名固定为 websearch,经 compose 内网直连其 8338 端口。
+  //    若 docker/ 下 websearch 配置开启了 auth_token,取消 headers 注释,
+  //    并让 WEBSEARCH_TOKEN 环境变量一并注入(见 docker-compose.yml)。
+  // ══════════════════════════════════════════════════════════════════
+  "mcp": {
+    "websearch": {
+      "type": "remote",
+      "url": "http://websearch:8338/mcp",
+      "enabled": true,
+      "timeout": 15000
+      // "headers": { "Authorization": "Bearer {env:WEBSEARCH_TOKEN}" }
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════
+  // ③ 汉化检索 agent(系统提示词见 prompts/hanhua-search.md,已 COPY 进镜像)
+  // ══════════════════════════════════════════════════════════════════
+  "agent": {
+    "hanhua-search": {
+      "description": "检索轻小说/漫画等作品是否存在官方中文或民间汉化版本,输出带来源的结构化结论",
+      "mode": "all",
+      "prompt": "{file:./prompts/hanhua-search.md}",
+      "temperature": 0.1,
+      "steps": 20,
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "allow",
+        "task": "deny",
+        "todowrite": "deny"
+      }
+    }
+  }
+}

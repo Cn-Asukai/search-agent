@@ -1,0 +1,282 @@
+# ==============================================
+# websearch-mcp 配置文件
+# 复制为 websearch.config.yaml 后根据需求修改
+# 所有配置均支持环境变量覆盖（见下方说明）
+# ==============================================
+
+# MCP HTTP 服务监听端口（stdio CLI 忽略此字段）
+port: 8338
+
+# 监听地址（默认 127.0.0.1，只允许本机访问）
+# 需要局域网/公网访问时改为 0.0.0.0，并强烈建议同时配置 auth_token
+# host: "127.0.0.1"
+
+# 业务端点鉴权 token（可选，默认空 = 不鉴权）
+# 配置后访问 /mcp 与 /searxng/search 需携带 Authorization: Bearer <token> 或 X-API-Key: <token>
+# 环境变量: WEBSEARCH_TOKEN
+# auth_token: ""
+
+# API 上游超时（秒），默认 30；显式 0 = 不设超时（上游黑洞时请求可能永久挂起，不建议）
+# upstream_timeout_sec: 30  # API 上游超时（秒），0 = 不设超时
+
+# 日志级别: debug / info / warn / error（默认 info）
+log_level: info
+
+# 搜索模式:
+#   - baidu      : 百度千帆搜索（失败自动回退百度网页搜索），enable_ai_search 控制端点
+#   - apipool    : API Key 池轮转：每次只调一个供应商，失败自动切换，支持 round-robin / priority 策略
+#   - tavily     : 仅使用 Tavily Search API
+#   - exa        : 仅使用 Exa Web Search API
+#   - hybrid     : 全引擎混合（百度智能搜索 + 百度网页搜索 + Tavily + Exa + Bing + DuckDuckGo）
+#   - engine     : 百度网页搜索 + Bing + DuckDuckGo（代理启用时加入 DuckDuckGo），无需 API Key
+mode: engine
+
+# 网络环境: china（默认，自动跳过海外引擎） / international（启用全部引擎）
+network: china
+
+# 屏蔽站点列表（对所有搜索引擎生效）
+black_list_host:
+  - "baijiahao.baidu.com"
+  - "csdn.net"
+  - "csdn.com"
+  - "gitcode.com"
+  - "gitcode.net"
+  - "baidu.com"
+  - "weibo.com"
+  - "sina.com.cn"
+
+# ==============================================
+# 全局限流配置（对所有搜索引擎统一生效）
+# ==============================================
+rate_limit:
+  per_sec: 3   # 每秒请求数上限（默认 3）
+  per_min: 60  # 每分钟请求数上限（默认 60）
+
+# ==============================================
+# 百度千帆 AI Search API（mode=baidu/apipool/hybrid 时需要）
+# 获取地址: https://console.bce.baidu.com/iam/#/iam/apikey/list
+# 环境变量: BAIDU_SK
+# ==============================================
+# baidu:
+#   api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
+#   sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
+#     - "sk-xxxx"
+#     - "sk-yyyy"
+#   # 搜索端点配置
+#   enable_ai_search: true           # true=智能搜索 chat/completions（默认），false=网页搜索 web_search
+#   model: ""                      # 智能搜索模型名，不传时走免费百度搜索（不产生 LLM 费用）；传入模型名启用 LLM 智能搜索
+#   search_source: "baidu_search_v2" # 搜索引擎版本（默认 baidu_search_v2）
+#   enable_reasoning: false          # 深度思考（默认 false）
+#   enable_deep_search: false        # 深搜索（默认 false）
+#   search_mode: "auto"              # 搜索模式: auto/required/disabled（默认 auto）
+
+# ==============================================
+# Tavily Search API（mode=tavily/apipool/hybrid 时需要）
+# 获取地址: https://app.tavily.com/home
+# 环境变量: TAVILY_SK
+# ==============================================
+# tavily:
+#   api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
+#   sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
+#     - "tvly-xxxx"
+#     - "tvly-yyyy"
+
+# ==============================================
+# Exa Web Search API（mode=exa/apipool/hybrid 时需要）
+# 获取地址: https://dashboard.exa.ai/api-keys
+# 环境变量: EXA_API_KEY
+# ==============================================
+# exa:
+#   api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
+#   sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
+#     - "exa-xxxx"
+#     - "exa-yyyy"
+#   num_results: 5        # 单次搜索结果数量（默认 5）
+#   lookback_days: 90     # 搜索时间范围（天），默认 90
+
+# ==============================================
+# Bing 通用搜索引擎（兜底引擎 + engine 模式主力引擎）
+# 无需 API Key，默认开启
+# ==============================================
+bing:
+  enabled: true
+  blocked: [] # Bing 专用屏蔽域名（与 black_list_host 合并）
+
+# ==============================================
+# DuckDuckGo 搜索引擎（需代理才能访问）
+# 无需 API Key，默认开启；代理启用时自动参与搜索
+# ==============================================
+duckduckgo:
+  enabled: true
+  blocked: [] # DuckDuckGo 专用屏蔽域名（与 black_list_host 合并）
+
+# ==============================================
+# Google 搜索引擎（默认禁用，被反爬拦截暂不可用）
+# 显式 enabled: true 可尝试启用，但可能返回安全挑战页面
+# ==============================================
+google:
+  enabled: false
+  blocked: [] # Google 专用屏蔽域名（与 black_list_host 合并）
+
+# ==============================================
+# 学术搜索引擎（无需 API Key）
+# ==============================================
+academic:
+  enabled: true # 学术引擎总开关（默认 true）
+  bing_fallback: false # 学术搜索时用 Bing 兜底（默认 true）
+  enhance: true # 学术搜索评分增强（RRF 融合 + 引用数/期刊权威/PDF/新鲜度信号），默认 true
+  threshold: 0.02 # 学术结果阀值（比通用搜索更宽松），默认 0.02
+  # 各引擎独立禁用（默认 false = 启用）
+  disable_arxiv: false
+  disable_crossref: false
+  disable_openalex: false
+  disable_pubmed: false
+  # 这两个在不开代理的情况下基本不可访问
+  disable_semantic_scholar: true
+  disable_google_scholar: true
+  # 国内可直连的三个增补引擎（Europe PMC=生物医学 / DBLP=CS 会议期刊 / DOAJ=开放获取）
+  disable_europepmc: false
+  disable_dblp: false
+  disable_doaj: false
+  # Semantic Scholar 可选 API key（环境变量 SEMANTIC_SCHOLAR_API_KEY 可覆盖）。
+  # 匿名配额限流严格，带 key 连续 429 时引擎自动降级为匿名模式
+  # semantic_scholar_api_key: ""
+
+# ==============================================
+# 代理配置
+# 默认自动检测系统代理（Windows 注册表 / 环境变量）。
+# Clash、V2RayN 等代理软件开启系统代理后，DuckDuckGo、Semantic Scholar、
+# Google Scholar、Jina Reader 等工具自动通过代理访问，无需手动配置。
+# 显式设置 enabled: false 可完全禁用代理。
+# ==============================================
+proxy:
+  enabled: false # 留空或不设则自动检测系统代理；显式 true 使用 endpoint；显式 false 禁用
+  endpoint: "http://127.0.0.1:7897" # 代理端点（仅 enabled: true 时生效，默认 7897）
+
+# ==============================================
+# LLM 配置（可选，用于搜索摘要生成）
+# 环境变量: LLM_BASE_URL, LLM_API_KEY
+# ==============================================
+# llm:
+#   base_url: "https://api.openai.com/v1"
+#   api_key: "sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#   model_id: "gpt-4o-mini"
+
+# ==============================================
+# 缓存配置（可选）
+# enabled 不设置时按 storage_path 是否非空判断（向后兼容）
+# 显式 false 可强制禁用缓存（忽略 storage_path）
+# 显式 true 强制启用（需配合 storage_path）
+# ==============================================
+cache:
+  # enabled: true
+  storage_path: "D:/data/search_cache.db"
+  cleanup_interval: 30
+
+# ==============================================
+# Jina Reader 配置（可选，用于 cleanfetch 工具回退）
+# 配置 API Key 后 cleanfetch 抓取失败时自动回退 Jina Reader
+# 代理自动检测，无需显式开启
+# 获取 API Key: https://jina.ai/reader/
+# ==============================================
+# jina:
+#   api_key: ""
+#   base_url: "https://r.jina.ai" # 默认值
+
+# ==============================================
+# 增强型网页抓取（基于 go-webfetch）
+# 默认关闭，需显式 enabled: true 才会启用
+# 启用后无需代理即可抓取网页，失败时回退到 Jina Reader（需代理）
+# ==============================================
+cleanfetch:
+  enabled: false            # 总开关（默认 false，旧配置不启用）
+  file_output_dir: ""       # 大文本文件输出目录（默认 系统临时目录/webfetch/）
+  file_ttl_hours: 24        # 临时文件保留时长（小时），默认 24
+  max_inline_lines: 100     # 内联返回最大行数，超过则存文件（默认 100）
+  max_inline_chars: 0       # 内联返回最大字符数，0=不限（默认 0）
+  timeout_sec: 30           # 单次请求超时（秒），默认 30；经代理访问海外站点建议 30~60
+  max_fetch_size_mb: 10     # HEAD 预检最大文件大小（MB），超过拒绝抓取（默认 10）
+  use_system_proxy: false   # 自动使用系统代理（环境变量+注册表），默认 false
+  max_retries: 3            # 最大重试次数（仅 429/502/503），默认 3
+
+# ==============================================
+# PDF 解析工具（基于 go-webfetch，独立于 cleanfetch）
+# 默认关闭，需显式 enabled: true 才会启用
+# ==============================================
+pdf_parser:
+  enabled: false            # 总开关（默认 false）
+  # MinerU 解析（可选）
+  # 本地 PDF：优先用 PDF 库抽文本；抽不到且 mineru_ocr=true 时回退 MinerU OCR
+  # 远程 URL：有 Token 时可用精准解析 API（≤200MB/200页）
+  # 无 Token + OCR：Agent 轻量 API（本地文件签名上传，≤10MB/20页）
+  # 获取 Token: https://mineru.net/apiManage
+  # 环境变量: MINERU_TOKEN
+  # mineru_token: ""
+  # mineru_model: "pipeline"  # pipeline(默认) / vlm(推荐，更精准)
+  # mineru_ocr: false         # 扫描件 OCR 回退（本地库读不到文本时启用）
+  # mineru_formula: true      # 公式识别（默认 true）
+  # mineru_table: true        # 表格识别（默认 true）
+  # mineru_lang: "ch"         # 文档语言（默认 ch，中英文）
+  # mineru_remote_pdf: true  # 远程 PDF URL 走 MinerU 精准 API（默认 true，false 则远程一律不走 MinerU）
+
+# ==============================================
+# 日志文件滚动配置（可选）
+# ==============================================
+log:
+  max_size: 1 # 单个日志文件最大 MB（默认 1）
+  max_age: 1 # 保留天数（默认 1）
+
+# ==============================================
+# SmartSearch 工具高级配置（可选）
+# 控制搜索结果的 score 过滤、截断和输出格式
+# ==============================================
+# smartsearch:
+#   max_size: 10          # 全局最大结果数（按 score 排序后截断），0 = 不限
+#   show_meta: true       # 输出中是否显示引擎来源和相关性分数（默认 true）
+#   enhance: true         # 是否启用本地评分增强（RRF 融合 + 词汇对齐 + 域名品质 + 多层 Boost + 阀值过滤），默认 true
+#   relevance_threshold: 0.05  # 增强后相关性阀值，final_score < 该值的结果被过滤（Top-1/每引擎保底不受影响），默认 0.05
+#   mmr:                       # MMR 多样性重排（打散同话题的高相似结果，如转载/镜像站）
+#     enabled: true            # 总开关（默认 true）
+#     lambda: 0.7              # 相关性-多样性权衡系数 [0,1]，越高越偏相关性，越低越偏多样性（默认 0.7）
+#     target_count: 0          # MMR 后目标条数，0 = 不额外截断（由 max_size 统一截断）
+#   engines:              # 按引擎名配置（引擎名: tavily_api, exa, baidu_api, baidu, bing, google, duckduckgo）
+#     tavily_api:
+#       min_score: 0.5    # Tavily API 最低相关性分数阈值（0 = 不过滤）
+#       max_size: 6       # Tavily API 单引擎最大结果数（默认 4）
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分（enhance=true 时生效），0 = 默认 1.0
+#     exa:
+#       min_score: 0      # Exa 不回传 score，此字段无效
+#       max_size: 4       # Exa 单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+#     baidu_api:
+#       min_score: 0      # 百度千帆 API 不回传 score，此字段无效（enable_ai_search 控制端点）
+#       max_size: 5       # 百度千帆 API 单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+#     baidu:
+#       min_score: 0      # 百度网页搜索不回传 score，此字段无效
+#       max_size: 5       # 百度网页搜索单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+#     bing:
+#       min_score: 0      # Bing 不回传 score，此字段无效
+#       max_size: 4       # Bing 单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+#     google:
+#       min_score: 0      # Google 不回传 score，此字段无效
+#       max_size: 4       # Google 单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+#     duckduckgo:
+#       min_score: 0      # DuckDuckGo 不回传 score，此字段无效
+#       max_size: 4       # DuckDuckGo 单引擎最大结果数
+#       weight: 1.0       # 引擎权重，影响 RRF 融合分，0 = 默认 1.0
+
+# ==============================================
+# Apipool 模式配置（可选，mode=apipool 时生效）
+# ==============================================
+# apipool:
+#   strategy: round-robin  # 供应商选择策略:
+#                          #   round-robin（默认）: 跨请求轮转起始供应商，每次请求内先用完当前供应商所有可用 SK 再 fallback
+#                          #   priority: 始终从第一个供应商开始，用完所有 SK → 下一个供应商 → web 引擎兜底
+#   engines:               # 供应商优先级顺序（默认 [baidu, tavily, exa]，百度网页搜索兜底始终在末尾）
+#     - baidu
+#     - tavily
+#     - exa

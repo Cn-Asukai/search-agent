@@ -1,0 +1,11 @@
+# Docker 构建上下文排除(agent 镜像 context 为仓库根)
+node_modules
+npm-debug.log
+.env
+*.log
+.git
+.gitignore
+websearch-mcpserver-*.exe
+websearch.log
+.websearch.pid
+docker/README.md

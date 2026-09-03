@@ -1,0 +1,25 @@
+{
+  "name": "search-agent",
+  "version": "0.1.0",
+  "description": "服务端汉化版本搜索 agent:基于 opencode SDK 驱动 LLM agent 联网检索作品的官方中文/民间汉化信息",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@effect/platform-node": "^4.0.0-rc.112",
+    "@opencode-ai/sdk": "^1.18.25",
+    "effect": "^4.0.0-rc.112"
+  },
+  "devDependencies": {
+    "@types/node": "^26.4.0",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2"
+  }
+}

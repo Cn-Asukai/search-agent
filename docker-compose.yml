@@ -1,0 +1,92 @@
+# ════════════════════════════════════════════════════════════════
+# search-agent 容器编排:agent 服务(HTTP :8787)+ websearch MCP 服务(:8338)
+#
+# 使用:
+#   1. cp .env.example .env 并填入模型 key(见下方 environment 注释)
+#   2. docker compose up -d --build
+#   3. 验证: curl http://localhost:8787/health
+#
+# 数据目录:
+#   - opencode-data:agent 容器的 opencode 会话/缓存(~/.local/share/opencode)
+#   - websearch-cache:websearch 搜索缓存(/var/lib/websearch)
+# ════════════════════════════════════════════════════════════════
+
+services:
+  agent:
+    build:
+      context: .
+      dockerfile: docker/agent/Dockerfile
+    container_name: search-agent
+    restart: unless-stopped
+    # 内嵌 opencode 需要联网安装 AI SDK 的 provider 包(仅首次)
+    # 如需 http(s) 代理,取消下面两行并指向你的代理(如 Clash 7890/7897)
+    # environment:
+    #   - HTTP_PROXY=http://host.docker.internal:7897
+    #   - HTTPS_PROXY=http://host.docker.internal:7897
+    environment:
+      # HTTP 服务监听(容器内固定 8787;改对外端口改 ports 即可)
+      PORT: 8787
+      HOST: 0.0.0.0
+
+      # ── 模型(必填)────────────────────────────────────────────
+      # 强制指定模型,格式 <provider>/<model>;provider 与 models 清单
+      # 见 docker/opencode/config.json(默认已内置 taotoken/deepseek-v4-pro)
+      OPENCODE_MODEL: ${OPENCODE_MODEL:-taotoken/deepseek-v4-pro}
+      # provider 的 API key(对应 docker/opencode/config.json 中 {env:...})
+      TAOTOKEN_API_KEY: ${TAOTOKEN_API_KEY:-}
+
+      # ── opencode 接入(默认内嵌模式,会自动 spawn opencode serve)─
+      # 若改用外部 opencode serve 容器,设置其地址并注释掉本行
+      # OPENCODE_BASE_URL: http://opencode:7777
+
+      # ── 任务执行(可选)────────────────────────────────────────
+      # TASK_TIMEOUT_MS: 300000
+      # MAX_CONCURRENCY: 3
+      # SYNC_MAX_WAIT_MS: 1800000
+
+      # ── API 鉴权(可选)────────────────────────────────────────
+      # API_AUTH_KEY: ${API_AUTH_KEY:-}
+    ports:
+      - "${AGENT_PORT:-8787}:8787"
+    volumes:
+      # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
+      - opencode-data:/home/node/.local/share/opencode
+    depends_on:
+      websearch:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+  # ── 联网搜索 MCP 服务(websearch-mcpserver)────────────────
+  websearch:
+    build:
+      context: docker/websearch
+      dockerfile: Dockerfile
+    container_name: search-websearch
+    restart: unless-stopped
+    environment:
+      # 若需开启业务端点鉴权,在 .env 设置 WEBSEARCH_TOKEN,
+      # 并同步取消 docker/opencode/opencode.jsonc 中 headers 注释
+      # WEBSEARCH_TOKEN: ${WEBSEARCH_TOKEN:-}
+      TZ: ${TZ:-Asia/Shanghai}
+    ports:
+      # 仅供本机调试;agent 走 compose 内网 websearch:8338,不依赖此映射
+      - "127.0.0.1:${WEBSEARCH_PORT:-8338}:8338"
+    volumes:
+      - websearch-cache:/var/lib/websearch
+    healthcheck:
+      # 版本/健康端点;websearch-mcpserver 无独立 /health,以 MCP 初始化握手代替
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8338/mcp -X POST -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d '{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-03-26\",\"capabilities\":{},\"clientInfo\":{\"name\":\"docker-healthcheck\",\"version\":\"1.0\"}}}' -o /dev/null || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    # 上游搜索(Bing/百度)需要出网;无需额外配置
+
+volumes:
+  opencode-data:
+  websearch-cache:

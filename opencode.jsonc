@@ -1,0 +1,51 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+
+  // ══════════════════════════════════════════════════════════════════
+  // ① 模型配置(必填)
+  //    取消下一行注释,填入你的模型,格式为 "provider/model-id",例如:
+  //      "model": "zai/glm-4.7"
+  //      "model": "anthropic/claude-sonnet-4-5"
+  //      "model": "deepseek/deepseek-chat"
+  //    然后运行 `opencode auth login` 选择对应 provider 并填入 API key。
+  //    也可以不改这里,改用环境变量 OPENCODE_MODEL=provider/model-id 强制指定。
+  // ══════════════════════════════════════════════════════════════════
+  // "model": "zai/glm-4.7",
+
+  // ══════════════════════════════════════════════════════════════════
+  // ② 联网搜索 MCP(websearch-mcpserver)
+  //    前置:从 https://github.com/daidaiJ/websearch-mcpserver/releases
+  //    下载 Windows 版并运行 `websearch-mcpserver.exe start`(默认端口 8338)。
+  //    若你在其 websearch.config.yaml 中配置了 auth_token,请设置环境变量
+  //    WEBSEARCH_TOKEN,并取消下方 headers 的注释。
+  // ══════════════════════════════════════════════════════════════════
+  "mcp": {
+    "websearch": {
+      "type": "remote",
+      "url": "http://127.0.0.1:8338/mcp",
+      "enabled": true,
+      "timeout": 15000
+      // "headers": { "Authorization": "Bearer {env:WEBSEARCH_TOKEN}" }
+    }
+  },
+
+  // ══════════════════════════════════════════════════════════════════
+  // ③ 汉化检索 agent(系统提示词见 prompts/hanhua-search.md)
+  // ══════════════════════════════════════════════════════════════════
+  "agent": {
+    "hanhua-search": {
+      "description": "检索轻小说/漫画等作品是否存在官方中文或民间汉化版本,输出带来源的结构化结论",
+      "mode": "all",
+      "prompt": "{file:./prompts/hanhua-search.md}",
+      "temperature": 0.1,
+      "steps": 20,
+      "permission": {
+        "edit": "deny",
+        "bash": "deny",
+        "webfetch": "allow",
+        "task": "deny",
+        "todowrite": "deny"
+      }
+    }
+  }
+}
