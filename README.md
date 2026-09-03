@@ -65,7 +65,14 @@ curl http://localhost:8787/health
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本:
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建并推送到 GHCR:
+
+```bash
+git tag v0.1.0
+git push origin v0.1.0
+```
+
+semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。也可本地构建:
 
 ```bash
 docker build -t ghcr.io/cn-asukai/search-agent:latest .
