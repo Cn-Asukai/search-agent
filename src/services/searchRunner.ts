@@ -1,13 +1,13 @@
-import { Context, Duration, Effect, Fiber, Layer, Option, Scope, Stream } from "effect"
+import { Context, Effect, Fiber, Layer, Option, Stream } from "effect"
 import { AppConfig } from "../env.js"
 import { describePartEvent, EventBridge, type OpencodeEvent } from "./eventBridge.js"
 import {
   OpenCode,
   OpenCodeOps,
   describeMessageError,
-  parseFromTextParts,
-  parseStructuredResult,
+  resolveSearchResult,
 } from "./opencode.js"
+import { waitSessionSettled } from "./sessionWait.js"
 import { TaskManager } from "./taskManager.js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { SearchResult } from "../domain/search.js"
@@ -57,56 +57,6 @@ export const SearchRunnerLive: Layer.Layer<
         Effect.map((fiber) => () => Fiber.interrupt(fiber).pipe(Effect.ignore)),
       )
 
-    /** 等待会话终态:Stream 消费事件,捕获最终消息 + timeoutOrElse 超时 */
-    const waitSessionSettled = (sessionID: string) => {
-      const timeoutMs = Duration.toMillis(config.taskTimeout)
-      let hasAssistant = false
-      let assistantError: unknown
-      let finalInfo: unknown
-
-      const waitFor = Stream.fromPubSub(bridge.events).pipe(
-        Stream.filter((e) => e.properties?.sessionID === sessionID),
-        Stream.tap((event) => {
-          if (event.type === "message.updated") {
-            const info = event.properties.info
-            if (info && typeof info === "object" && (info as { role?: unknown }).role === "assistant") {
-              hasAssistant = true
-              finalInfo = info
-              const err = (info as { error?: unknown }).error
-              if (err) assistantError = err
-            }
-          }
-          if (event.type === "session.idle" && hasAssistant) {
-            // idle 事件后是最终状态
-          }
-          return Effect.void
-        }),
-        Stream.takeWhile(() => {
-          if (assistantError) return false
-          if (hasAssistant) return false
-          return true
-        }),
-        Stream.runDrain,
-        Effect.map(() => {
-          if (assistantError) {
-            return { ok: false, error: describeMessageError(assistantError), finalInfo: undefined }
-          }
-          return { ok: true, finalInfo }
-        }),
-      )
-      return waitFor.pipe(
-        Effect.timeoutOrElse({
-          duration: config.taskTimeout,
-          orElse: () =>
-            Effect.succeed({
-              ok: false,
-              error: `检索超时(超过 ${timeoutMs / 1000} 秒)`,
-              finalInfo: undefined,
-            }),
-        }),
-      )
-    }
-
     /** 执行单个任务(入口,不抛异常,结果写回任务表) */
     const runTask = (taskId: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
@@ -126,21 +76,46 @@ export const SearchRunnerLive: Layer.Layer<
 
         // 订阅该会话的工具调用事件 → 进度
         const stopWatch = yield* watchSession(sessionID, taskId)
-
-        // 异步提交
-        yield* ops.submitSearch(sessionID, {
-          query: task.query,
-          type: task.type,
-          stream: false,
-        })
-
-        // 等待终态
-        const outcome = yield* waitSessionSettled(sessionID)
-
+        // 终态订阅与 prompt 同时启动,避免提交后再订而漏掉 idle
+        const { outcome } = yield* Effect.all(
+          {
+            outcome: waitSessionSettled(bridge.events, sessionID, config.taskTimeout),
+            submit: ops.submitSearch(sessionID, {
+              query: task.query,
+              type: task.type,
+              stream: false,
+            }),
+          },
+          { concurrency: 2 },
+        )
         yield* stopWatch()
 
+        const info = outcome.finalInfo as AssistantMessage | undefined
+        let result: SearchResult | null = resolveSearchResult({
+          info,
+          structuredFromTool: outcome.structuredFromTool,
+          parts: outcome.textParts,
+        })
+
+        // 事件里没解析出来时再拉一次消息(旧 messages 反序列化失败则忽略)
+        if (!result) {
+          const latest = yield* ops.getLatestAssistant(sessionID).pipe(Effect.option)
+          if (Option.isSome(latest)) {
+            result = resolveSearchResult({
+              info: latest.value.info,
+              structuredFromTool: outcome.structuredFromTool,
+              parts: latest.value.parts,
+            })
+          }
+        }
+
+        if (result) {
+          yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
+          yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
+          return
+        }
+
         if (!outcome.ok) {
-          // 超时/失败 → 中止会话
           yield* ops.abortSession(sessionID).pipe(Effect.ignore)
           yield* tasks.update(taskId, {
             status: "error",
@@ -149,18 +124,7 @@ export const SearchRunnerLive: Layer.Layer<
           })
           return
         }
-
-        // 取结果(优先用事件捕获的最终消息,避免 messages 端点反序列化 bug)
-        const info = outcome.finalInfo as AssistantMessage | undefined
-        if (!info) {
-          yield* tasks.update(taskId, {
-            status: "error",
-            error: "未能获取模型最终消息",
-            endedAt: Date.now(),
-          })
-          return
-        }
-        if (info.error) {
+        if (info?.error) {
           yield* tasks.update(taskId, {
             status: "error",
             error: describeMessageError(info.error),
@@ -169,18 +133,11 @@ export const SearchRunnerLive: Layer.Layer<
           return
         }
 
-        const result: SearchResult | null = parseStructuredResult(info.structured)
-        if (!result) {
-          yield* tasks.update(taskId, {
-            status: "error",
-            error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
-            endedAt: Date.now(),
-          })
-          return
-        }
-
-        yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
-        yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
+        yield* tasks.update(taskId, {
+          status: "error",
+          error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
+          endedAt: Date.now(),
+        })
       })
 
     const launch = (taskId: string) =>

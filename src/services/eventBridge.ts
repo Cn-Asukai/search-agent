@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, PubSub, Schedule, Stream } from "effect"
+import { Context, Effect, Layer, PubSub, type Scope } from "effect"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2"
 
 // ─────────────────────────────────────────────────────────────
@@ -104,42 +104,59 @@ export const EventBridgeLive: Layer.Layer<EventBridge> = Layer.effect(
 
 /**
  * 事件循环:连接 opencode 的 SSE 事件流,把每个事件发布到 PubSub。
- * 断线后按指数退避重连,常驻运行(调用方负责 fork 到 scoped scope)。
+ * 断线重连在 runNativeLoop 内完成。不能 Effect.sync + Effect.forever:
+ * sync 立刻成功,forever 会每 tick 再开一条 SSE,把本机套接字打满。
  */
 export function eventLoop(
   client: OpencodeClient,
   events: PubSub.PubSub<OpencodeEvent>,
-): Effect.Effect<void, never> {
-  // 用原生 async 循环迭代 SSE(绕开 effect 调度器与 fetch 流的兼容问题)
-  const subscribeOnce = Effect.sync(() => {
-    void runNativeLoop(client, events)
-  })
-
-  return subscribeOnce.pipe(
-    Effect.catch((err) => {
-      console.warn("[event-bridge] opencode 事件流异常:", err)
-      return Effect.void
+): Effect.Effect<void, never, Scope.Scope> {
+  return Effect.acquireRelease(
+    Effect.sync(() => {
+      const ac = new AbortController()
+      void runNativeLoop(client, events, ac.signal)
+      return ac
     }),
-    Effect.forever,
-  )
+    (ac) => Effect.sync(() => ac.abort()),
+  ).pipe(Effect.flatMap(() => Effect.never))
 }
 
 /** 原生 async 循环:订阅 SSE 并发布到 PubSub,断线重连 */
-async function runNativeLoop(
+export async function runNativeLoop(
   client: OpencodeClient,
   events: PubSub.PubSub<OpencodeEvent>,
+  signal?: AbortSignal,
 ): Promise<void> {
-  for (;;) {
+  while (!signal?.aborted) {
     try {
       const subscription = await client.event.subscribe()
       for await (const event of subscription.stream) {
-        // 发布到 PubSub(不等待)
+        if (signal?.aborted) return
         Effect.runFork(PubSub.publish(events, event as OpencodeEvent))
       }
       console.warn(`[event-bridge] 事件流结束,5s 后重连`)
     } catch (err) {
+      if (signal?.aborted) return
       console.warn(`[event-bridge] 事件流异常,5s 后重连:`, err)
     }
-    await new Promise((resolve) => setTimeout(resolve, 5000))
+    await delay(5000, signal)
   }
+}
+
+function delay(ms: number, signal?: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    if (signal?.aborted) {
+      resolve()
+      return
+    }
+    const timer = setTimeout(resolve, ms)
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(timer)
+        resolve()
+      },
+      { once: true },
+    )
+  })
 }

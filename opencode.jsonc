@@ -21,10 +21,10 @@
       },
       "models": {
         "default": {
-          "modelID": "{env:LLM_MODEL}",
+          "id": "{env:LLM_MODEL}",
           "name": "{env:LLM_MODEL}",
-          "limit": { "context": 128000, "output": 8192 },
-          "modalities": { "input": ["text", "image"], "output": ["text"] }
+          "limit": { "context": 1000000, "output": 128000 },
+          "modalities": { "input": ["text"], "output": ["text"] }
         }
       }
     }
@@ -56,7 +56,7 @@
       "mode": "all",
       "prompt": "{file:./prompts/hanhua-search.md}",
       "temperature": 0.1,
-      "steps": 20,
+      "steps": 8,
       "permission": {
         "edit": "deny",
         "bash": "deny",

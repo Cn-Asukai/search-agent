@@ -59,7 +59,7 @@ curl http://localhost:8787/health
 
 要点:
 
-- **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.provider.json`](opencode.provider.json)(及 `opencode.jsonc`)里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
+- **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
 - **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,使用镜像自带配置;`APP_HOST=0.0.0.0` 让 agent 经 compose 内网(`websearch:8338`)访问。不依赖宿主机上跑的 websearch 进程。
 - **数据持久化**:opencode 会话存 `opencode-data` 卷,websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
@@ -140,7 +140,6 @@ curl -N -X POST http://localhost:8787/api/search \
 | 位置 | 作用 |
 |---|---|
 | `opencode.jsonc` | 自定义网关(`provider.custom`)、MCP 搜索服务(`mcp.websearch`)、agent 定义(`agent.hanhua-search`) |
-| `opencode.provider.json` | 容器内 opencode 用户级 provider(与上面 custom 网关相同,镜像不跑 auth login) |
 | `prompts/hanhua-search.md` | 检索 agent 的系统提示词(检索策略、判定标准、反编造要求) |
 | `.env`(参考 `.env.example`) | 模型网关、端口、并发/超时、鉴权、WEBSEARCH_TOKEN |
 
@@ -154,7 +153,6 @@ curl -N -X POST http://localhost:8787/api/search \
 ├── Dockerfile                # 仅构建 agent 镜像(不含 websearch MCP)
 ├── docker-compose.yml        # 仅拉取远程镜像并部署
 ├── opencode.jsonc            # opencode 配置:自定义网关 / MCP / agent
-├── opencode.provider.json    # 容器内 opencode 用户级 provider(镜像不跑 auth login)
 ├── prompts/hanhua-search.md  # 检索 agent 系统提示词
 ├── src/
 │   ├── index.ts              # 入口:Layer 装配、HttpRouter 路由、SSE、事件桥

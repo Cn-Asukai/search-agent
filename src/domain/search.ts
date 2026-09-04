@@ -125,8 +125,84 @@ export type SseClientEvent =
   | { readonly event: "ping"; readonly data: unknown }
 
 // ─────────────────────────────────────────────────────────────
-// 供 opencode 结构化输出(format=json_schema)使用的 JSON Schema
-// (draft-2020-12,由 effect Schema 编译而来)
+// 供 opencode StructuredOutput 工具使用的 JSON Schema。
+// 只用 type/properties/required/enum/items/description,避免 anyOf、minLength:
+// opencode 读回 session 消息时会按封闭 JsonSchema 解码,多字段会 400。
 // ─────────────────────────────────────────────────────────────
 
-export const searchResultJsonSchema = Schema.toJsonSchemaDocument(SearchResult)
+export const searchResultJsonSchema: Record<string, unknown> = {
+  type: "object",
+  additionalProperties: false,
+  required: ["verdict", "confidence", "work", "official", "fan", "sources", "summary"],
+  properties: {
+    verdict: {
+      type: "string",
+      enum: ["official", "fan", "both", "none", "uncertain"],
+      description: "official 仅官方中文;fan 仅民间汉化;both 都有;none 都无;uncertain 无法确定",
+    },
+    confidence: { type: "string", enum: ["high", "medium", "low"] },
+    work: {
+      type: "object",
+      additionalProperties: false,
+      required: ["original_title", "type"],
+      properties: {
+        original_title: { type: "string", description: "作品原名或通用名" },
+        chinese_title: { type: "string", description: "中文译名,没有则省略" },
+        author: { type: "string", description: "作者,未知则省略" },
+        type: { type: "string", enum: ["novel", "manga", "other"] },
+      },
+    },
+    official: {
+      type: "object",
+      additionalProperties: false,
+      required: ["exists"],
+      properties: {
+        exists: { type: "boolean" },
+        publisher: { type: "string" },
+        regions: { type: "array", items: { type: "string" } },
+        evidence: { type: "string" },
+      },
+    },
+    fan: {
+      type: "object",
+      additionalProperties: false,
+      required: ["exists", "translations"],
+      properties: {
+        exists: { type: "boolean" },
+        translations: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: false,
+            required: ["status", "source_url"],
+            properties: {
+              group: { type: "string" },
+              status: { type: "string", enum: ["ongoing", "completed", "dropped", "unknown"] },
+              progress: { type: "string" },
+              source_url: { type: "string", description: "可核查的来源 URL" },
+              note: { type: "string" },
+            },
+          },
+        },
+      },
+    },
+    sources: {
+      type: "array",
+      items: {
+        type: "object",
+        additionalProperties: false,
+        required: ["url", "kind"],
+        properties: {
+          title: { type: "string" },
+          url: { type: "string" },
+          site: { type: "string" },
+          kind: {
+            type: "string",
+            enum: ["official", "fan-translation", "database", "forum", "other"],
+          },
+        },
+      },
+    },
+    summary: { type: "string", description: "中文简述:作品身份、官方中文、民间汉化、关键依据" },
+  },
+}

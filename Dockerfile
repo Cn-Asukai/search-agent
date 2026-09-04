@@ -9,7 +9,7 @@
 # 服务启动时自动 spawn `opencode serve`,因此镜像内同时包含:
 #   - Node.js 运行时代码(src/)
 #   - opencode CLI(npm 包 opencode-ai,postinstall 拉取平台二进制)
-#   - 项目 opencode.jsonc + 用户级 provider 配置
+#   - 项目 opencode.jsonc(模型/MCP/agent)
 
 # ── 构建阶段 ────────────────────────────────────────────────
 # Node 24 官方镜像(bookworm/glibc;opencode 的 linux-x64 二进制为 glibc 静态链接)
@@ -50,9 +50,6 @@ COPY prompts ./prompts
 
 # compose 内网服务名是 websearch,容器内不能走 127.0.0.1
 RUN sed -i 's|http://127.0.0.1:8338/mcp|http://websearch:8338/mcp|' opencode.jsonc
-
-# opencode 用户级配置:通用自定义网关(base_url / key / 模型名由环境变量注入)
-COPY opencode.provider.json /home/node/.config/opencode/config.json
 
 # opencode(Bun 打包)会写 $HOME/.local/{state,share}(会话/缓存/日志),
 # 整个 /home/node 归 node 用户,保证 HOME 下各目录可写

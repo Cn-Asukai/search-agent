@@ -11,6 +11,18 @@ try {
   // 没有 .env 时静默跳过
 }
 
+// 系统 HTTP_PROXY 会把 127.0.0.1 也走代理(本机 MCP / 内嵌 opencode 被 502)
+for (const key of ["NO_PROXY", "no_proxy"] as const) {
+  const parts = (process.env[key] ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+  for (const host of ["127.0.0.1", "localhost", "::1"]) {
+    if (!parts.includes(host)) parts.push(host)
+  }
+  process.env[key] = parts.join(",")
+}
+
 const intConfig = (name: string, fallback: number): Config.Config<number> =>
   Config.number(name).pipe(
     Config.withDefault(fallback),
@@ -42,7 +54,7 @@ export type AppConfigService = Context.Service.Shape<typeof AppConfig>
 export const AppConfigLive: Layer.Layer<AppConfig, Config.ConfigError> = Layer.effect(
   AppConfig
 )(Effect.gen(function* () {
-    const taskTimeoutMs = yield* intConfig("TASK_TIMEOUT_MS", 5 * 60_000)
+    const taskTimeoutMs = yield* intConfig("TASK_TIMEOUT_MS", 10 * 60_000)
     const syncMaxWaitMs = yield* intConfig("SYNC_MAX_WAIT_MS", 30 * 60_000)
     const apiAuthKey = yield* Config.option(Config.redacted("API_AUTH_KEY"))
     const opencodeModel = nonempty(yield* Config.option(Config.string("OPENCODE_MODEL")))

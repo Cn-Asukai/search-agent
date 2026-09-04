@@ -4,7 +4,6 @@ import {
   createOpencodeServer,
   type AssistantMessage,
   type OpencodeClient,
-  type OutputFormat,
 } from "@opencode-ai/sdk/v2"
 import { AppConfig } from "../env.js"
 import { SearchResult, type SearchRequest } from "../domain/search.js"
@@ -103,11 +102,8 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
               text: buildUserMessage(request.query, request.type),
             },
           ],
-          format: {
-            type: "json_schema" as const,
-            schema: searchResultJsonSchema.schema as unknown as Record<string, unknown>,
-            retryCount: 2,
-          } satisfies OutputFormat,
+          // 不传 format:json_schema 会强制 toolChoice=required(DeepSeek thinking 400);
+          // {type:"text"} 写进 session 后 messages API 反序列化失败(Expected OutputFormatText)。
         }),
       ).pipe(
         Effect.flatMap((res) =>
@@ -178,7 +174,8 @@ function buildUserMessage(query: string, type: SearchRequest["type"]): string {
     `作品名/描述:${query}`,
     `类型:${labels[type]}`,
     "",
-    "按系统提示词中的检索流程执行,并严格按 Schema 输出结构化结论。",
+    "按系统提示词中的检索流程执行。全部检索完成后,最后一条回复必须是一个 JSON 对象(可放在 ```json 代码块中),不要在 JSON 之外写结论。JSON 必须符合下列 Schema:",
+    JSON.stringify(searchResultJsonSchema),
   ].join("\n")
 }
 
@@ -221,7 +218,12 @@ import { Schema } from "effect"
 
 export function parseStructuredResult(raw: unknown): SearchResult | null {
   if (raw == null || typeof raw !== "object") return null
-  const candidates = [raw, ...unwrapKeys(raw, ["output", "data", "result"])]
+  const cleaned = stripNulls(raw)
+  if (cleaned == null || typeof cleaned !== "object") return null
+  const candidates = [
+    cleaned,
+    ...unwrapKeys(cleaned, ["output", "data", "result", "structured", "structured_output"]),
+  ]
   for (const candidate of candidates) {
     const decoded = Schema.decodeUnknownOption(SearchResult)(candidate)
     if (decoded._tag === "Some") return decoded.value
@@ -246,13 +248,47 @@ export function parseFromTextParts(parts: readonly unknown[]): SearchResult | nu
 
   for (const candidate of candidates) {
     try {
-      const parsed = Schema.decodeUnknownOption(SearchResult)(JSON.parse(candidate))
-      if (parsed._tag === "Some") return parsed.value
+      const parsed = parseStructuredResult(JSON.parse(candidate))
+      if (parsed) return parsed
     } catch {
       // 尝试下一个候选
     }
   }
   return null
+}
+
+/** 从 assistant 消息 / 工具入参 / 文本里取出第一条能过 Schema 的结论 */
+export function resolveSearchResult(input: {
+  readonly info?: AssistantMessage
+  readonly structuredFromTool?: unknown
+  readonly parts?: readonly unknown[]
+}): SearchResult | null {
+  const rec = input.info as unknown as Record<string, unknown> | undefined
+  const candidates: unknown[] = [
+    input.info?.structured,
+    rec?.structured_output,
+    input.structuredFromTool,
+  ]
+  for (const candidate of candidates) {
+    const parsed = parseStructuredResult(candidate)
+    if (parsed) return parsed
+  }
+  if (input.parts?.length) return parseFromTextParts(input.parts)
+  return null
+}
+
+/** JSON Schema 把 optional 编成 string | null;Effect optional 不接受 null,解码前先丢掉 */
+function stripNulls(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripNulls)
+  if (value && typeof value === "object") {
+    const out: Record<string, unknown> = {}
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      if (child === null) continue
+      out[key] = stripNulls(child)
+    }
+    return out
+  }
+  return value
 }
 
 function unwrapKeys(obj: object, keys: string[]): unknown[] {
