@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
 import { BookOpen, CircleHelp, Languages, Loader2, Search } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { decodeUrlForDisplay, decodeUrlsInText } from "@/lib/displayUrl"
 import {
   createSearchClient,
   mapTaskToView,
@@ -243,37 +244,7 @@ export default function App() {
           </Card>
 
           {running || progress.length > 0 ? (
-            <Card data-testid="progress-list">
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  {running ? <Loader2 className="size-4 animate-spin" /> : null}
-                  检索进度
-                </CardTitle>
-                <CardDescription>工具调用与阶段状态会在检索过程中实时出现。</CardDescription>
-              </CardHeader>
-              <CardContent>
-                {progress.length === 0 ? (
-                  <p className="text-sm text-muted-foreground">已提交，等待服务推送进度…</p>
-                ) : (
-                  <ol className="flex flex-col gap-2">
-                    {progress.map((entry, index) => (
-                      <li
-                        key={`${entry.seq}-${index}`}
-                        className="rounded-lg border bg-muted/40 px-3 py-2 text-sm"
-                      >
-                        <span className="mr-2 text-xs text-muted-foreground">
-                          {entry.kind === "tool" ? "工具" : entry.kind === "text" ? "文本" : "状态"}
-                        </span>
-                        {entry.message}
-                        {entry.detail ? (
-                          <p className="mt-1 text-xs text-muted-foreground">{entry.detail}</p>
-                        ) : null}
-                      </li>
-                    ))}
-                  </ol>
-                )}
-              </CardContent>
-            </Card>
+            <ProgressPanel running={running} progress={progress} />
           ) : null}
 
           <Outcome view={view} />
@@ -336,6 +307,64 @@ export default function App() {
         </aside>
       </main>
     </div>
+  )
+}
+
+function ProgressPanel({
+  running,
+  progress,
+}: {
+  running: boolean
+  progress: ProgressEntry[]
+}) {
+  const endRef = useRef<HTMLLIElement>(null)
+
+  useEffect(() => {
+    const el = endRef.current
+    if (!el) return
+    const viewport = el.closest("[data-slot=scroll-area-viewport]")
+    if (viewport instanceof HTMLElement) {
+      viewport.scrollTop = viewport.scrollHeight
+    }
+  }, [progress.length])
+
+  return (
+    <Card data-testid="progress-list" className="overflow-hidden">
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          {running ? <Loader2 className="size-4 animate-spin" /> : null}
+          检索进度
+        </CardTitle>
+        <CardDescription>工具调用与阶段状态会在检索过程中实时出现。</CardDescription>
+      </CardHeader>
+      <CardContent>
+        {progress.length === 0 ? (
+          <p className="text-sm text-muted-foreground">已提交，等待服务推送进度…</p>
+        ) : (
+          <ScrollArea className="h-64 overflow-hidden">
+            <ol className="flex flex-col gap-2 pr-3">
+              {progress.map((entry, index) => (
+                <li
+                  key={`${entry.seq}-${index}`}
+                  ref={index === progress.length - 1 ? endRef : undefined}
+                  className="rounded-lg border bg-muted/40 px-3 py-2 text-sm break-all"
+                >
+                  <span className="mr-2 text-xs text-muted-foreground">
+                    {entry.kind === "tool" ? "工具" : entry.kind === "text" ? "文本" : "状态"}
+                  </span>
+                  {decodeUrlsInText(entry.message)}
+                  {entry.detail ? (
+                    <p className="mt-1 text-xs text-muted-foreground break-all">
+                      {decodeUrlsInText(entry.detail)}
+                    </p>
+                  ) : null}
+                </li>
+              ))}
+            </ol>
+          </ScrollArea>
+        )}
+      </CardContent>
+    </Card>
   )
 }
 
@@ -432,12 +461,12 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
                     <span className="text-muted-foreground"> · {item.status}</span>
                     <div>
                       <a
-                        className="text-primary underline-offset-4 hover:underline"
+                        className="text-primary break-all underline-offset-4 hover:underline"
                         href={item.source_url}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {item.source_url}
+                        {decodeUrlForDisplay(item.source_url)}
                       </a>
                     </div>
                   </li>
@@ -457,12 +486,12 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
                 <li key={source.url} className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{sourceKindLabels[source.kind] ?? source.kind}</Badge>
                   <a
-                    className="text-primary underline-offset-4 hover:underline"
+                    className="text-primary break-all underline-offset-4 hover:underline"
                     href={source.url}
                     target="_blank"
                     rel="noreferrer"
                   >
-                    {source.title ?? source.site ?? source.url}
+                    {source.title ?? source.site ?? decodeUrlForDisplay(source.url)}
                   </a>
                 </li>
               ))}
