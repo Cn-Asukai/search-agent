@@ -79,6 +79,15 @@ docker build -t ghcr.io/cn-asukai/search-agent:latest .
 docker push ghcr.io/cn-asukai/search-agent:latest
 ```
 
+PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/cicd) 会自动审查 diff(`.github/workflows/ocr-review.yml`);也可在 PR 评论 `/open-code-review` 或 `@open-code-review` 手动重跑。需在仓库 **Settings → Secrets and variables → Actions** 配置:
+
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `OCR_LLM_URL` | Secret | LLM API 端点(如 `https://api.openai.com/v1/chat/completions`) |
+| `OCR_LLM_AUTH_TOKEN` | Secret | LLM 鉴权 token |
+| `OCR_LLM_MODEL` | Variable | 模型名 |
+| `OCR_LLM_USE_ANTHROPIC` | Variable | Anthropic 填 `true`,OpenAI 兼容填 `false` |
+
 ## 接口
 
 ### `POST /api/search`
