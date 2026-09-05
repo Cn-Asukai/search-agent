@@ -1,7 +1,8 @@
 # ==============================================
 # websearch-mcp 配置文件
-# 复制为 websearch.config.yaml 后根据需求修改
-# 所有配置均支持环境变量覆盖（见下方说明）
+# 同步自上游 daidaiJ/websearch-mcpserver config.example.yaml
+# Docker 挂载为容器内 /app/config.yaml
+# 所有配置均支持环境变量覆盖（见上游 docs/configuration.md）
 # ==============================================
 
 # MCP HTTP 服务监听端口（stdio CLI 忽略此字段）
@@ -9,12 +10,19 @@ port: 8338
 
 # 监听地址（默认 127.0.0.1，只允许本机访问）
 # 需要局域网/公网访问时改为 0.0.0.0，并强烈建议同时配置 auth_token
+# Docker compose 通过 APP_HOST=0.0.0.0 覆盖，供 agent 经内网访问
 # host: "127.0.0.1"
 
 # 业务端点鉴权 token（可选，默认空 = 不鉴权）
 # 配置后访问 /mcp 与 /searxng/search 需携带 Authorization: Bearer <token> 或 X-API-Key: <token>
 # 环境变量: WEBSEARCH_TOKEN
 # auth_token: ""
+
+# MCP 无状态 HTTP 模式（默认 false = 会话式）
+# true 时每个 POST 独立处理，无需 initialize 握手与 Mcp-Session-Id 会话，
+# 便于反向代理/负载均衡水平扩展（免 sticky session）；GET SSE 长连返回 405。
+# 对齐 MCP 2026-07-28 规范的 stateless-first 方向；本服务工具均为请求-响应式，无状态模式下功能无损。
+# mcp_stateless: false
 
 # API 上游超时（秒），默认 30；显式 0 = 不设超时（上游黑洞时请求可能永久挂起，不建议）
 # upstream_timeout_sec: 30  # API 上游超时（秒），0 = 不设超时
@@ -24,10 +32,11 @@ log_level: info
 
 # 搜索模式:
 #   - baidu      : 百度千帆搜索（失败自动回退百度网页搜索），enable_ai_search 控制端点
-#   - apipool    : API Key 池轮转：每次只调一个供应商，失败自动切换，支持 round-robin / priority 策略
+#   - apipool    : API Key 池轮转：每次只调一个供应商，失败自动切换，支持 round-robin / priority / weighted 策略
 #   - tavily     : 仅使用 Tavily Search API
 #   - exa        : 仅使用 Exa Web Search API
-#   - hybrid     : 全引擎混合（百度智能搜索 + 百度网页搜索 + Tavily + Exa + Bing + DuckDuckGo）
+#   - anysearch  : 仅使用 AnySearch API（https://www.anysearch.com/docs）
+#   - hybrid     : 全引擎混合（Anysearch + 百度智能搜索 + 百度网页搜索 + Tavily + Exa + Bing + DuckDuckGo）
 #   - engine     : 百度网页搜索 + Bing + DuckDuckGo（代理启用时加入 DuckDuckGo），无需 API Key
 mode: engine
 
@@ -57,18 +66,21 @@ rate_limit:
 # 获取地址: https://console.bce.baidu.com/iam/#/iam/apikey/list
 # 环境变量: BAIDU_SK
 # ==============================================
-# baidu:
-#   api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
-#   sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
-#     - "sk-xxxx"
-#     - "sk-yyyy"
-#   # 搜索端点配置
-#   enable_ai_search: true           # true=智能搜索 chat/completions（默认），false=网页搜索 web_search
-#   model: ""                      # 智能搜索模型名，不传时走免费百度搜索（不产生 LLM 费用）；传入模型名启用 LLM 智能搜索
-#   search_source: "baidu_search_v2" # 搜索引擎版本（默认 baidu_search_v2）
-#   enable_reasoning: false          # 深度思考（默认 false）
-#   enable_deep_search: false        # 深搜索（默认 false）
-#   search_mode: "auto"              # 搜索模式: auto/required/disabled（默认 auto）
+baidu:
+  # 百度网页搜索引擎（tn=json 直抓）。上游 v3.2.1 起默认 false（实测被 CAPTCHA 识别），
+  # 出口 IP 干净时可显式开启。本项目显式开启。
+  web_enabled: true
+  # api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
+  # sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
+  #   - "sk-xxxx"
+  #   - "sk-yyyy"
+  # 搜索端点配置
+  # enable_ai_search: true           # true=智能搜索 chat/completions（默认），false=网页搜索 web_search
+  # model: ""                      # 智能搜索模型名，不传时走免费百度搜索（不产生 LLM 费用）；传入模型名启用 LLM 智能搜索
+  # search_source: "baidu_search_v2" # 搜索引擎版本（默认 baidu_search_v2）
+  # enable_reasoning: false          # 深度思考（默认 false）
+  # enable_deep_search: false        # 深搜索（默认 false）
+  # search_mode: "auto"              # 搜索模式: auto/required/disabled（默认 auto）
 
 # ==============================================
 # Tavily Search API（mode=tavily/apipool/hybrid 时需要）
@@ -93,6 +105,18 @@ rate_limit:
 #     - "exa-yyyy"
 #   num_results: 5        # 单次搜索结果数量（默认 5）
 #   lookback_days: 90     # 搜索时间范围（天），默认 90
+
+# ==============================================
+# AnySearch Search API（mode=anysearch/apipool/hybrid 时需要）
+# 文档: https://www.anysearch.com/docs
+# 环境变量: ANYSEARCH_API_KEY
+# ==============================================
+# anysearch:
+#   api_key: ""           # 单 Key（sk_list 为空时自动作为单元素列表）
+#   sk_list:              # 多 Key 轮询列表（优先级高于 api_key）
+#     - "as-xxxx"
+#     - "as-yyyy"
+#   num_results: 10       # 单次搜索结果数量（默认 10）
 
 # ==============================================
 # Bing 通用搜索引擎（兜底引擎 + engine 模式主力引擎）
@@ -167,10 +191,11 @@ proxy:
 # enabled 不设置时按 storage_path 是否非空判断（向后兼容）
 # 显式 false 可强制禁用缓存（忽略 storage_path）
 # 显式 true 强制启用（需配合 storage_path）
+# Docker 工作目录为 /app，此路径落在 websearch-cache 卷上
 # ==============================================
 cache:
   # enabled: true
-  storage_path: "D:/data/search_cache.db"
+  storage_path: "./data/search_cache.db"
   cleanup_interval: 30
 
 # ==============================================
@@ -273,10 +298,18 @@ log:
 # Apipool 模式配置（可选，mode=apipool 时生效）
 # ==============================================
 # apipool:
-#   strategy: round-robin  # 供应商选择策略:
-#                          #   round-robin（默认）: 跨请求轮转起始供应商，每次请求内先用完当前供应商所有可用 SK 再 fallback
-#                          #   priority: 始终从第一个供应商开始，用完所有 SK → 下一个供应商 → web 引擎兜底
-#   engines:               # 供应商优先级顺序（默认 [baidu, tavily, exa]，百度网页搜索兜底始终在末尾）
+#   strategy: weighted    # 供应商选择策略:
+#                         #   round-robin（默认）: 跨请求轮转起始供应商，每次请求内先用完当前供应商所有可用 SK 再 fallback
+#                         #   priority: 始终从第一个供应商开始，用完所有 SK → 下一个供应商 → web 引擎兜底
+#                         #   weighted: 按权重加权随机选起始供应商，突发请求天然分散（权重见 weights）
+#   engines:              # 供应商优先级顺序（默认 [anysearch, baidu, tavily, exa]，百度网页搜索兜底始终在末尾）
+#     - anysearch
 #     - baidu
 #     - tavily
 #     - exa
+#   weights:              # weighted 策略的供应商权重（单 Key 权重，实际权重 = 配置权重 × 当前可用 Key 数累加）
+#                         # 默认值: anysearch=30000, baidu=1500, tavily=1200, exa=1200；显式 0 = 不参与加权起始选择
+#     anysearch: 30000
+#     baidu: 1500
+#     tavily: 1200
+#     exa: 1200

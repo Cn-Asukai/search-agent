@@ -79,6 +79,8 @@ services:
       # 仅供本机调试;agent 走 compose 内网 websearch:8338,不依赖此映射
       - "127.0.0.1:${WEBSEARCH_PORT:-8338}:8338"
     volumes:
+      # 覆盖镜像内默认 config.yaml（含 baidu.web_enabled: true）
+      - ./websearch.config.yaml:/app/config.yaml:ro
       - websearch-cache:/app/data
     healthcheck:
       # 远程镜像基于 alpine(busybox),无 curl;以端口探活代替 MCP 握手
