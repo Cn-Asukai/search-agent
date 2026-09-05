@@ -34,6 +34,13 @@ test("compose does not use APP_HOST as MCP listen override", () => {
   assert.equal(assigned.length, 0, `compose must not set APP_HOST, found: ${assigned.join(" | ")}`)
 })
 
+test("compose pulls published images and does not build locally", () => {
+  const compose = readRepo("docker-compose.yml")
+  const active = uncommentedLines(compose).join("\n")
+  assert.match(active, /image:\s*ghcr\.io\/cn-asukai\/search-agent/)
+  assert.doesNotMatch(active, /^\s*build:/m)
+})
+
 test("hanhua prompt requires smartsearch and forbids search-engine SERP fetches", () => {
   const prompt = readRepo("prompts/hanhua-search.md")
   assert.match(prompt, /必须.*smartsearch|smartsearch.*必须/)
