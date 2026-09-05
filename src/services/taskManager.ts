@@ -30,26 +30,35 @@ export class TaskManager extends Context.Service<TaskManager, {
 /** TaskManager 服务的实例类型(= Shape) */
 export type TaskManagerService = Context.Service.Shape<typeof TaskManager>
 
-export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig> = Layer.effect(
-  TaskManager
-)(Effect.gen(function* () {
-    const config = yield* AppConfig
+export interface MakeTaskManagerInput {
+  readonly maxConcurrency: number
+  readonly now?: () => number
+  readonly newId?: () => string
+}
+
+/** 任务表实现。Layer 只负责注入 AppConfig;测试可传入 now / newId。 */
+export const makeTaskManager = (
+  input: MakeTaskManagerInput,
+): Effect.Effect<TaskManagerService> =>
+  Effect.gen(function* () {
+    const now = input.now ?? Date.now
+    const newId = input.newId ?? (() => randomUUID())
     const tasks = yield* Ref.make<ReadonlyMap<string, Task>>(new Map())
     const events = yield* PubSub.unbounded<TaskEvent>()
-    const semaphore = yield* Semaphore.make(config.maxConcurrency)
+    const semaphore = yield* Semaphore.make(input.maxConcurrency)
 
     const emit = (event: TaskEvent) => PubSub.publish(events, event).pipe(Effect.ignore)
 
     const create = (query: string, type: WorkType) =>
       Effect.gen(function* () {
-        const now = Date.now()
+        const ts = now()
         const task: Task = {
-          id: randomUUID(),
+          id: newId(),
           query,
           type,
           status: "queued",
-          createdAt: now,
-          updatedAt: now,
+          createdAt: ts,
+          updatedAt: ts,
           progress: [],
         }
         yield* Ref.update(tasks, (map) => {
@@ -74,7 +83,7 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig> = Layer
         const map = yield* Ref.get(tasks)
         const existing = map.get(id)
         if (!existing) return
-        const updated: Task = { ...existing, ...patch, updatedAt: Date.now() }
+        const updated: Task = { ...existing, ...patch, updatedAt: now() }
         yield* Ref.update(tasks, (m) => new Map(m).set(id, updated))
         if (patch.status === "done") yield* emit({ _tag: "done", task: updated })
         if (patch.status === "error") yield* emit({ _tag: "error", task: updated })
@@ -88,7 +97,7 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig> = Layer
         const full: ProgressEntry = {
           ...entry,
           seq: task.progress.length + 1,
-          ts: Date.now(),
+          ts: now(),
         }
         const progress = [...task.progress, full]
         if (progress.length > MAX_PROGRESS_PER_TASK) {
@@ -118,7 +127,16 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig> = Layer
     })
 
     return { tasks, events, semaphore, create, get, update, appendProgress, recent, stats }
-  }))
+  })
+
+export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig> = Layer.effect(
+  TaskManager,
+)(
+  Effect.gen(function* () {
+    const config = yield* AppConfig
+    return yield* makeTaskManager({ maxConcurrency: config.maxConcurrency })
+  }),
+)
 
 function evictOld(map: Map<string, Task>): void {
   if (map.size <= MAX_TASKS) return

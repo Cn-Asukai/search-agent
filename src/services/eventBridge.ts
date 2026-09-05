@@ -95,6 +95,8 @@ export class EventBridge extends Context.Service<EventBridge, {
   readonly events: PubSub.PubSub<OpencodeEvent>
 }>()("EventBridge") {}
 
+export type EventBridgeService = Context.Service.Shape<typeof EventBridge>
+
 export const EventBridgeLive: Layer.Layer<EventBridge> = Layer.effect(
   EventBridge
 )(Effect.gen(function* () {

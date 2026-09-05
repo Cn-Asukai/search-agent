@@ -127,7 +127,7 @@ sequenceDiagram
 
 **TaskManager** — 唯一任务真相。上限 500 条、每条进度 200。`events` 只给 HTTP。并发槽也放这里，但 `take`/`release` 由 SearchRunner 手动做（避免 `withPermits` 把超时包死）。
 
-**SearchRunner** — 对外只有 `launch(taskId)`。不存任务、不跟客户端说话，只编排 opencode 并把结果写回表。
+**SearchRunner** — 对外只有 `launch(taskId)`。不存任务、不跟客户端说话，只编排 opencode 并把结果写回表。实现是 `makeSearchRunner`；不再直接依赖 `OpenCode`（spawn），只依赖 `OpenCodeOps`。
 
 ---
 
@@ -135,15 +135,17 @@ sequenceDiagram
 
 没有 `new TaskManager()`。每个服务是 Effect 的 **tag**（`yield* TaskManager` 表示从 Context 取）。
 
-实现写在 `XxxLive` 里，缺的依赖用 `Layer.provide` 补。装配全在 `src/index.ts`：
+实现写在 `makeXxx(...)` 里，`XxxLive` 只负责从 Context 取出依赖再交给 `make`。装配全在 `src/index.ts`：
 
 ```
 AppConfigLive          无依赖，读环境
-OpenCodeLive           需要 AppConfig
-OpenCodeOpsLive        需要 OpenCode + AppConfig
-TaskManagerLive        需要 AppConfig
-EventBridgeLive        无依赖
-SearchRunnerLive       需要上面几乎全部
+OpenCodeLive           需要 AppConfig（spawn 本身就是 adapter，没有 make）
+OpenCodeOpsLive        需要 OpenCode + AppConfig → makeOpenCodeOps({ client, config })
+TaskManagerLive        需要 AppConfig → makeTaskManager({ maxConcurrency })
+EventBridgeLive        无依赖（对象只有一个 PubSub）
+SearchRunnerLive       需要 OpenCodeOps + TaskManager + EventBridge + AppConfig
+                       → makeSearchRunner({ ops, tasks, bridge, config })
+                       不再依赖 OpenCode 本体
 ```
 
 `Layer.build(ServicesLayer)` 时各 Live 跑一遍，同一份实例放进 Context。HTTP 和 SearchRunner 拿到的是**同一张任务表**。

@@ -23,7 +23,7 @@ const OpenCodeOpsWithDeps = OpenCodeOpsLive.pipe(
 )
 const SearchRunnerWithDeps = SearchRunnerLive.pipe(
   Layer.provide(
-    Layer.mergeAll(OpenCodeWithConfig, OpenCodeOpsWithDeps, TaskManagerWithConfig, EventBridgeLive, AppConfigLive),
+    Layer.mergeAll(OpenCodeOpsWithDeps, TaskManagerWithConfig, EventBridgeLive, AppConfigLive),
   ),
 )
 const ServicesLayer = Layer.mergeAll(

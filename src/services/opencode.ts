@@ -65,98 +65,121 @@ export class OpenCodeOps extends Context.Service<OpenCodeOps, {
   readonly health: Effect.Effect<{ ok: boolean; version?: string }>
 }>()("OpenCodeOps") {}
 
-export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConfig> = Layer.effect(
-  OpenCodeOps
-)(Effect.gen(function* () {
-    const opencode = yield* OpenCode
-    const config = yield* AppConfig
-    const client = opencode.client
+export type OpenCodeOpsService = Context.Service.Shape<typeof OpenCodeOps>
 
-    const modelParam = (): { model?: { providerID: string; modelID: string } } => {
-      const model = config.opencodeModel
-      if (!model) return {}
-      const i = model.indexOf("/")
-      if (i <= 0 || i === model.length - 1) return {}
-      return { model: { providerID: model.slice(0, i), modelID: model.slice(i + 1) } }
-    }
+export interface OpenCodeOpsConfig {
+  readonly opencodeModel: string | undefined
+  readonly opencodeAgent: string
+}
 
-    const createSession = Effect.tryPromise(() =>
-      client.session.create({ title: `汉化检索 ${new Date().toISOString()}` }),
+/** RPC 实现。Layer 只负责取出 client / 配置;测试可传入假 client。 */
+export function makeOpenCodeOps(input: {
+  readonly client: OpencodeClient
+  readonly config: OpenCodeOpsConfig
+}): OpenCodeOpsService {
+  const { client, config } = input
+
+  const modelParam = (): { model?: { providerID: string; modelID: string } } => {
+    const model = config.opencodeModel
+    if (!model) return {}
+    const i = model.indexOf("/")
+    if (i <= 0 || i === model.length - 1) return {}
+    return { model: { providerID: model.slice(0, i), modelID: model.slice(i + 1) } }
+  }
+
+  const createSession = Effect.tryPromise(() =>
+    client.session.create({ title: `汉化检索 ${new Date().toISOString()}` }),
+  ).pipe(
+    Effect.flatMap((res) =>
+      res.error || !res.data?.id
+        ? Effect.fail(new Error(`创建 opencode 会话失败:${JSON.stringify(res.error)}`))
+        : Effect.succeed(res.data.id),
+    ),
+  )
+
+  const submitSearch = (sessionID: string, request: SearchRequest) =>
+    Effect.tryPromise(() =>
+      client.session.promptAsync({
+        sessionID,
+        agent: config.opencodeAgent,
+        ...modelParam(),
+        parts: [
+          {
+            type: "text" as const,
+            text: buildUserMessage(request.query, request.type),
+          },
+        ],
+        // 不传 format:json_schema 会强制 toolChoice=required(DeepSeek thinking 400);
+        // {type:"text"} 写进 session 后 messages API 反序列化失败(Expected OutputFormatText)。
+      }),
     ).pipe(
       Effect.flatMap((res) =>
-        res.error || !res.data?.id
-          ? Effect.fail(new Error(`创建 opencode 会话失败:${JSON.stringify(res.error)}`))
-          : Effect.succeed(res.data.id),
-      ),
-    )
-
-    const submitSearch = (sessionID: string, request: SearchRequest) =>
-      Effect.tryPromise(() =>
-        client.session.promptAsync({
-          sessionID,
-          agent: config.opencodeAgent,
-          ...modelParam(),
-          parts: [
-            {
-              type: "text" as const,
-              text: buildUserMessage(request.query, request.type),
-            },
-          ],
-          // 不传 format:json_schema 会强制 toolChoice=required(DeepSeek thinking 400);
-          // {type:"text"} 写进 session 后 messages API 反序列化失败(Expected OutputFormatText)。
-        }),
-      ).pipe(
-        Effect.flatMap((res) =>
-          res.error
-            ? Effect.fail(new Error(`opencode prompt 提交失败:${JSON.stringify(res.error)}`))
-            : Effect.succeed(void 0),
-        ),
-      )
-
-    const getLatestAssistant = (sessionID: string) =>
-      Effect.tryPromise(() => client.session.messages({ sessionID, limit: 10 })).pipe(
-        Effect.flatMap((res) => {
-          if (res.error || !res.data) {
-            return Effect.fail(new Error(`拉取会话消息失败:${JSON.stringify(res.error)}`))
-          }
-          const assistant = [...res.data].reverse().find(
-            (m) => m.info?.role === "assistant" && !m.info.summary,
-          )
-          if (!assistant) return Effect.fail(new Error("未找到模型回复"))
-          return Effect.succeed({
-            info: assistant.info as AssistantMessage,
-            parts: assistant.parts ?? [],
-          })
-        }),
-      )
-
-    const abortSession = (sessionID: string) =>
-      Effect.tryPromise(() => client.session.abort({ sessionID })).pipe(
-        Effect.mapError((err) => new Error(`中止会话失败:${err instanceof Error ? err.message : String(err)}`)),
-        Effect.orDie,
-        Effect.ignore,
-      )
-
-    const health = Effect.tryPromise(() => client.global.health()).pipe(
-      Effect.map((res) =>
         res.error
-          ? { ok: false }
-          : {
-              ok: true,
-              version: (res.data as { version?: string } | undefined)?.version,
-            },
+          ? Effect.fail(new Error(`opencode prompt 提交失败:${JSON.stringify(res.error)}`))
+          : Effect.succeed(void 0),
       ),
-      Effect.catch(() => Effect.succeed({ ok: false })),
     )
 
-    return {
-      createSession,
-      submitSearch,
-      getLatestAssistant,
-      abortSession,
-      health,
-    }
-  }))
+  const getLatestAssistant = (sessionID: string) =>
+    Effect.tryPromise(() => client.session.messages({ sessionID, limit: 10 })).pipe(
+      Effect.flatMap((res) => {
+        if (res.error || !res.data) {
+          return Effect.fail(new Error(`拉取会话消息失败:${JSON.stringify(res.error)}`))
+        }
+        const assistant = [...res.data].reverse().find(
+          (m) => m.info?.role === "assistant" && !m.info.summary,
+        )
+        if (!assistant) return Effect.fail(new Error("未找到模型回复"))
+        return Effect.succeed({
+          info: assistant.info as AssistantMessage,
+          parts: assistant.parts ?? [],
+        })
+      }),
+    )
+
+  const abortSession = (sessionID: string) =>
+    Effect.tryPromise(() => client.session.abort({ sessionID })).pipe(
+      Effect.mapError((err) => new Error(`中止会话失败:${err instanceof Error ? err.message : String(err)}`)),
+      Effect.orDie,
+      Effect.ignore,
+    )
+
+  const health = Effect.tryPromise(() => client.global.health()).pipe(
+    Effect.map((res) =>
+      res.error
+        ? { ok: false }
+        : {
+            ok: true,
+            version: (res.data as { version?: string } | undefined)?.version,
+          },
+    ),
+    Effect.catch(() => Effect.succeed({ ok: false })),
+  )
+
+  return {
+    createSession,
+    submitSearch,
+    getLatestAssistant,
+    abortSession,
+    health,
+  }
+}
+
+export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConfig> = Layer.effect(
+  OpenCodeOps,
+)(
+  Effect.gen(function* () {
+    const opencode = yield* OpenCode
+    const config = yield* AppConfig
+    return makeOpenCodeOps({
+      client: opencode.client,
+      config: {
+        opencodeModel: config.opencodeModel,
+        opencodeAgent: config.opencodeAgent,
+      },
+    })
+  }),
+)
 
 // ─────────────────────────────────────────────────────────────
 // 消息构造
