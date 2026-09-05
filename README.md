@@ -36,6 +36,34 @@ cp .env.example .env   # 按需修改(全部有默认值,可不改)
 npm run dev            # 开发模式(热重载);生产用 npm start
 ```
 
+## 前端（Vite + React + shadcn）
+
+浏览器界面在 [`web/`](web/)。开发时 Vite 把 `/api` 与 `/health` 代理到本服务 `http://127.0.0.1:8787`。
+
+```bash
+# 终端 1：本服务
+npm run dev
+
+# 终端 2：前端
+npm install --prefix web
+npm run web:dev          # http://127.0.0.1:5173
+```
+
+生产构建与预览：
+
+```bash
+npm run web:build
+npm run web:preview      # http://127.0.0.1:4173，同样代理到 :8787
+```
+
+前端测试（驱动 shipped HTTP/SSE client）：
+
+```bash
+npm run web:test
+```
+
+页面可提交 `query` + `type`（`novel` | `manga` | `unknown`），以 `stream: true` 调用 `POST /api/search`，渲染 `progress` 与终态 `result` / `error`；也可按任务 id 调用 `GET /api/search/:id`。
+
 启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
 
 ## Docker 部署(推荐)
@@ -60,7 +88,7 @@ curl http://localhost:8787/health
 要点:
 
 - **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
-- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式开启百度网页搜索 `baidu.web_enabled: true`);`APP_HOST=0.0.0.0` 让 agent 经 compose 内网(`websearch:8338`)访问。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
+- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
 - **数据持久化**:opencode 会话存 `opencode-data` 卷,websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
@@ -136,6 +164,8 @@ curl -N -X POST http://localhost:8787/api/search \
 
 查询任务状态与结果(任务保存在内存中,服务重启即清空;超过等待上限的同步请求也可用它轮询)。
 
+`Accept: text/event-stream` 或 `?stream=true` 时，对**已有任务**再挂一条 SSE（先推当前快照，再推后续 `progress` / `result` / `error`），刷新页面后续上同一任务，不会新建检索。
+
 ### `GET /api/search`
 
 最近任务列表(id/查询/状态/时间,不含进度与结果明细),便于排查与轮询。
@@ -170,6 +200,7 @@ curl -N -X POST http://localhost:8787/api/search \
 │   ├── env.ts                # 配置(AppConfig)
 │   ├── domain/search.ts      # 领域 Schema
 │   └── services/             # opencode / 事件桥 / 任务表 / 检索编排
+├── web/                      # Vite + React + shadcn 前端（代理到 :8787）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
 └── .env.example
 ```

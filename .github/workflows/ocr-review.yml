@@ -122,9 +122,10 @@ jobs:
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
           ocr_version: '1.11.5'
-          # CommandCode/Cloudflare 524s ~125s on heavy review calls; serialize
-          # and give the job enough wall time to retry and still post comments.
-          review_concurrency: 1
+          # CommandCode sits behind Cloudflare; heavy review calls 524 around ~125s.
+          # Default OCR concurrency is 8 and stampedes the gateway. 2 keeps some
+          # overlap without the old full-parallel burst; job timeout still 60m.
+          review_concurrency: 2
           review_task_timeout: '25'
           llm_timeout: '180'
           # PR title as background context (highest-leverage OCR flag).

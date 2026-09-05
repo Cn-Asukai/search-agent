@@ -9,9 +9,9 @@
 port: 8338
 
 # 监听地址（默认 127.0.0.1，只允许本机访问）
-# 需要局域网/公网访问时改为 0.0.0.0，并强烈建议同时配置 auth_token
-# Docker compose 通过 APP_HOST=0.0.0.0 覆盖，供 agent 经内网访问
-# host: "127.0.0.1"
+# compose 内网给 agent 用服务名 websearch:8338 访问，必须绑全部接口。
+# 上游环境变量表没有 APP_HOST，不要靠环境变量覆盖此项。
+host: "0.0.0.0"
 
 # 业务端点鉴权 token（可选，默认空 = 不鉴权）
 # 配置后访问 /mcp 与 /searxng/search 需携带 Authorization: Bearer <token> 或 X-API-Key: <token>
@@ -142,11 +142,12 @@ google:
   enabled: false
   blocked: [] # Google 专用屏蔽域名（与 black_list_host 合并）
 
+# 本项目无需学术搜索
 # ==============================================
 # 学术搜索引擎（无需 API Key）
 # ==============================================
 academic:
-  enabled: true # 学术引擎总开关（默认 true）
+  enabled: false # 学术引擎总开关（默认 true）
   bing_fallback: false # 学术搜索时用 Bing 兜底（默认 true）
   enhance: true # 学术搜索评分增强（RRF 融合 + 引用数/期刊权威/PDF/新鲜度信号），默认 true
   threshold: 0.02 # 学术结果阀值（比通用搜索更宽松），默认 0.02
@@ -214,7 +215,7 @@ cache:
 # 启用后无需代理即可抓取网页，失败时回退到 Jina Reader（需代理）
 # ==============================================
 cleanfetch:
-  enabled: false            # 总开关（默认 false，旧配置不启用）
+  enabled: true            # 总开关（默认 false，旧配置不启用）
   file_output_dir: ""       # 大文本文件输出目录（默认 系统临时目录/webfetch/）
   file_ttl_hours: 24        # 临时文件保留时长（小时），默认 24
   max_inline_lines: 100     # 内联返回最大行数，超过则存文件（默认 100）

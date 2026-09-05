@@ -1,6 +1,7 @@
 node_modules/
 .env
 *.tmp.json
+web/dist/
 # websearch-mcpserver 二进制(按需保留/下载)
 websearch-mcpserver-windows-amd64.exe
 websearch.log

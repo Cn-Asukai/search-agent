@@ -60,7 +60,7 @@
       "permission": {
         "edit": "deny",
         "bash": "deny",
-        "webfetch": "allow",
+        "webfetch": "deny",
         "task": "deny",
         "todowrite": "deny"
       }
