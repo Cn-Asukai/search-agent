@@ -15,6 +15,9 @@
 
 services:
   agent:
+    # 提示词/权限变更需本地 build；默认仍拉 GHCR。验收未发布镜像时:
+    #   docker compose build agent && docker compose up -d --pull never --force-recreate
+    build: .
     image: ghcr.io/cn-asukai/search-agent:${AGENT_IMAGE_TAG:-latest}
     pull_policy: always
     container_name: search-agent
@@ -69,8 +72,6 @@ services:
     container_name: search-websearch
     restart: unless-stopped
     environment:
-      # 容器内需跨网络监听,供 agent 经 compose 内网访问
-      APP_HOST: "0.0.0.0"
       TZ: ${TZ:-Asia/Shanghai}
       # 若需开启业务端点鉴权,在 .env 设置 WEBSEARCH_TOKEN,
       # 并同步取消镜像内 opencode.jsonc 中 headers 注释(需重建 agent 镜像)

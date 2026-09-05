@@ -9,9 +9,9 @@
 port: 8338
 
 # 监听地址（默认 127.0.0.1，只允许本机访问）
-# 需要局域网/公网访问时改为 0.0.0.0，并强烈建议同时配置 auth_token
-# Docker compose 通过 APP_HOST=0.0.0.0 覆盖，供 agent 经内网访问
-# host: "127.0.0.1"
+# compose 内网给 agent 用服务名 websearch:8338 访问，必须绑全部接口。
+# 上游环境变量表没有 APP_HOST，不要靠环境变量覆盖此项。
+host: "0.0.0.0"
 
 # 业务端点鉴权 token（可选，默认空 = 不鉴权）
 # 配置后访问 /mcp 与 /searxng/search 需携带 Authorization: Bearer <token> 或 X-API-Key: <token>

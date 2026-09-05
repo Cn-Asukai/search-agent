@@ -166,4 +166,4 @@ Dockerfile                   只构建 agent
 docker-compose.yml           拉 agent + websearch 镜像
 ```
 
-Docker 下 agent 等 websearch healthy 后再起，MCP 地址是 `http://websearch:8338/mcp`。模型用环境变量 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`，不绑死厂商。
+Docker 下 agent 等 websearch healthy 后再起，MCP 地址是 `http://websearch:8338/mcp`。websearch 的监听地址写在挂载的 `websearch.config.yaml`（`host: "0.0.0.0"`），不要用 `APP_HOST`。模型用环境变量 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`，不绑死厂商。
