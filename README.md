@@ -36,6 +36,34 @@ cp .env.example .env   # 按需修改(全部有默认值,可不改)
 npm run dev            # 开发模式(热重载);生产用 npm start
 ```
 
+## 前端（Vite + React + shadcn）
+
+浏览器界面在 [`web/`](web/)。开发时 Vite 把 `/api` 与 `/health` 代理到本服务 `http://127.0.0.1:8787`。
+
+```bash
+# 终端 1：本服务
+npm run dev
+
+# 终端 2：前端
+npm install --prefix web
+npm run web:dev          # http://127.0.0.1:5173
+```
+
+生产构建与预览：
+
+```bash
+npm run web:build
+npm run web:preview      # http://127.0.0.1:4173，同样代理到 :8787
+```
+
+前端测试（驱动 shipped HTTP/SSE client）：
+
+```bash
+npm run web:test
+```
+
+页面可提交 `query` + `type`（`novel` | `manga` | `unknown`），以 `stream: true` 调用 `POST /api/search`，渲染 `progress` 与终态 `result` / `error`；也可按任务 id 调用 `GET /api/search/:id`。
+
 启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
 
 ## Docker 部署(推荐)
@@ -170,6 +198,7 @@ curl -N -X POST http://localhost:8787/api/search \
 │   ├── env.ts                # 配置(AppConfig)
 │   ├── domain/search.ts      # 领域 Schema
 │   └── services/             # opencode / 事件桥 / 任务表 / 检索编排
+├── web/                      # Vite + React + shadcn 前端（代理到 :8787）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
 └── .env.example
 ```
