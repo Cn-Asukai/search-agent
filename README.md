@@ -60,12 +60,12 @@ curl http://localhost:8787/health
 要点:
 
 - **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
-- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,使用镜像自带配置;`APP_HOST=0.0.0.0` 让 agent 经 compose 内网(`websearch:8338`)访问。不依赖宿主机上跑的 websearch 进程。
+- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,使用镜像自带配置;`APP_HOST=0.0.0.0` 让 agent 经 compose 内网(`websearch:8338`)访问。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
 - **数据持久化**:opencode 会话存 `opencode-data` 卷,websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建 **linux/amd64 + linux/arm64** 清单并推送到 GHCR。Apple Silicon / ARM 主机上 `docker compose pull` 会自动选对应架构。
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建 **linux/amd64 + linux/arm64** 清单并推送到 GHCR。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。
 
 ```bash
 git tag v0.1.0

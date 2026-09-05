@@ -1,7 +1,7 @@
 # ════════════════════════════════════════════════════════════════
 # search-agent 容器编排:仅从远程拉取镜像并部署,不在本地构建。
 #   agent     → ghcr.io/cn-asukai/search-agent          (linux/amd64 + linux/arm64)
-#   websearch → ghcr.io/daidaij/websearch-mcpserver
+#   websearch → ghcr.io/daidaij/websearch-mcpserver     (暂钉 linux/amd64,上游发 arm64 后去掉 platform)
 #
 # 使用:
 #   1. cp .env.example .env 并填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
@@ -62,6 +62,9 @@ services:
   # ── 联网搜索 MCP 服务(远程镜像,不在本仓库构建)──────────────
   websearch:
     image: ghcr.io/daidaij/websearch-mcpserver:${WEBSEARCH_IMAGE_TAG:-latest}
+    # 上游镜像暂无 linux/arm64;钉 amd64,由 Docker Desktop / QEMU 模拟。
+    # 上游发布 arm64 清单后删掉本行。
+    platform: linux/amd64
     pull_policy: always
     container_name: search-websearch
     restart: unless-stopped
