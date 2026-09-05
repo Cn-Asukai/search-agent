@@ -13,8 +13,8 @@
 #   variable  OCR_LLM_MODEL          model name
 #   variable  OCR_LLM_USE_ANTHROPIC  'true' for Anthropic, 'false' for OpenAI-compatible
 #
-# For the full list of action inputs/outputs and the four comment-posting modes
-# (sticky / incremental), see https://github.com/alibaba/open-code-review/blob/main/action.yml
+# Action is pinned to the v1.11.5 commit SHA. For the full list of inputs
+# and comment-posting modes, see https://github.com/alibaba/open-code-review/blob/main/action.yml
 
 name: OpenCodeReview PR Review
 
@@ -76,7 +76,7 @@ permissions:
 jobs:
   code-review:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 60
     # Run on PR events, or on human-authored comments starting with trigger
     # keywords. Bot comments are excluded as a safety net: GITHUB_TOKEN already
     # suppresses events from bot-posted comments, but a PAT/App token would not.
@@ -120,12 +120,18 @@ jobs:
             core.setOutput('title', pullRequest.title);
 
       - name: Run OpenCodeReview
-        uses: alibaba/open-code-review@main
+        uses: alibaba/open-code-review@2190f11fcd24ed74ed7a1120c5e63f901b1da658 # v1.11.5
         with:
           llm_url: ${{ secrets.OCR_LLM_URL }}
           llm_auth_token: ${{ secrets.OCR_LLM_AUTH_TOKEN }}
           llm_model: ${{ vars.OCR_LLM_MODEL }}
           llm_use_anthropic: ${{ vars.OCR_LLM_USE_ANTHROPIC }}
+          ocr_version: '1.11.5'
+          # CommandCode/Cloudflare 524s ~125s on heavy review calls; serialize
+          # and give the job enough wall time to retry and still post comments.
+          review_concurrency: 1
+          review_task_timeout: '25'
+          llm_timeout: '180'
           # PR title as background context (highest-leverage OCR flag).
           # issue_comment has no pull_request payload; fall back to the
           # title resolved in the previous step.
