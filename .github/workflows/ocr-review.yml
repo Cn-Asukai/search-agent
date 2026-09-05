@@ -35,7 +35,8 @@ concurrency:
   group: >-
     ${{
       (
-        github.event_name == 'pull_request_target'
+        github.event_name == 'pull_request'
+        || github.event_name == 'pull_request_target'
         || (
           github.event_name == 'issue_comment'
           && github.event.issue.pull_request
@@ -57,9 +58,12 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Use pull_request_target instead of pull_request so that secrets are
-  # available even for PRs from forks. This is safe because the reusable
-  # action only reads the diff and does not execute any code from the PR.
+  # pull_request: runs the workflow from the PR branch so this first
+  # adoption PR can self-test (same-repo PRs still receive secrets).
+  # pull_request_target: after merge, also reviews fork PRs with secrets.
+  # Same-repo events may fire both; concurrency cancels the duplicate.
+  pull_request:
+    types: [opened, synchronize, reopened]
   pull_request_target:
     types: [opened, synchronize, reopened]
   issue_comment:
@@ -79,7 +83,8 @@ jobs:
     # issue_comment triggers are further gated on author_association so only
     # MEMBER/OWNER/COLLABORATOR users can spend LLM quota via re-review.
     if: |
-      github.event_name == 'pull_request_target'
+      github.event_name == 'pull_request'
+      || github.event_name == 'pull_request_target'
       || (
         github.event_name == 'issue_comment'
         && github.event.issue.pull_request
