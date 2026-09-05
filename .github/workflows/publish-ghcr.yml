@@ -1,5 +1,5 @@
 # 推送 tag 时构建根目录 Dockerfile,推送到 GitHub Container Registry。
-# 镜像: ghcr.io/<owner>/<repo>
+# 镜像: ghcr.io/<owner>/<repo>（linux/amd64 + linux/arm64 清单）
 #   tag v1.2.3 → :1.2.3 :1.2 :v1.2.3,非预发布再打 :latest
 name: Publish to GHCR
 
@@ -16,7 +16,7 @@ jobs:
   build-and-push:
     name: Build and push
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     permissions:
       contents: read
       packages: write
@@ -27,6 +27,9 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v5
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -54,8 +57,8 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          # Dockerfile 安装的是 opencode linux-x64 二进制,不做多架构
-          platforms: linux/amd64
+          # npm / opencode-ai postinstall 按 TARGETPLATFORM 装对应二进制
+          platforms: linux/amd64,linux/arm64
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           annotations: ${{ steps.meta.outputs.annotations }}

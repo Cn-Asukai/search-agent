@@ -40,7 +40,7 @@ npm run dev            # 开发模式(热重载);生产用 npm start
 
 ## Docker 部署(推荐)
 
-compose **只拉取远程镜像并部署**,不在本地构建。两个容器:**agent 服务**(HTTP `:8787`,镜像 `ghcr.io/cn-asukai/search-agent`)+ **websearch MCP 服务**(内网 `:8338`,镜像 `ghcr.io/daidaij/websearch-mcpserver`)。
+compose **只拉取远程镜像并部署**,不在本地构建。两个容器:**agent 服务**(HTTP `:8787`,镜像 `ghcr.io/cn-asukai/search-agent`,多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`,镜像 `ghcr.io/daidaij/websearch-mcpserver`)。
 
 ```bash
 # 1. 准备环境变量(必填:自定义网关)
@@ -65,7 +65,7 @@ curl http://localhost:8787/health
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建并推送到 GHCR:
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建 **linux/amd64 + linux/arm64** 清单并推送到 GHCR。Apple Silicon / ARM 主机上 `docker compose pull` 会自动选对应架构。
 
 ```bash
 git tag v0.1.0

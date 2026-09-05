@@ -4,6 +4,7 @@
 # 仅构建本应用;websearch MCP 由 compose 从远程镜像拉取,不在此构建。
 #
 # 构建: docker build -t ghcr.io/cn-asukai/search-agent:latest .
+# 多架构: docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/cn-asukai/search-agent:latest --push .
 # 推送: docker push ghcr.io/cn-asukai/search-agent:latest
 #
 # 服务启动时自动 spawn `opencode serve`,因此镜像内同时包含:
@@ -12,7 +13,8 @@
 #   - 项目 opencode.jsonc(模型/MCP/agent)
 
 # ── 构建阶段 ────────────────────────────────────────────────
-# Node 24 官方镜像(bookworm/glibc;opencode 的 linux-x64 二进制为 glibc 静态链接)
+# Node 24 官方镜像(bookworm/glibc)。linux/amd64 与 linux/arm64 均有官方 tag;
+# opencode-ai postinstall 按 TARGETPLATFORM 拉取对应 glibc 二进制。
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /app

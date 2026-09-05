@@ -1,6 +1,6 @@
 # ════════════════════════════════════════════════════════════════
 # search-agent 容器编排:仅从远程拉取镜像并部署,不在本地构建。
-#   agent     → ghcr.io/cn-asukai/search-agent
+#   agent     → ghcr.io/cn-asukai/search-agent          (linux/amd64 + linux/arm64)
 #   websearch → ghcr.io/daidaij/websearch-mcpserver
 #
 # 使用:
