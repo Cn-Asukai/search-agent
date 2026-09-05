@@ -1,8 +1,9 @@
-import { Effect, Option, Schedule, Stream, type PubSub } from "effect"
+import { Effect, Option, PubSub, Schedule, Stream } from "effect"
 import type { SseClientEvent, Task, TaskEvent } from "../domain/search.js"
 
 // ─────────────────────────────────────────────────────────────
 // 对外 SSE:task → progress* → result | error,然后结束。
+// 先订 PubSub 再读快照,避免连接瞬间的 done 落在无重放空隙里。
 // 心跳只在检索进行中保活;终态事件会截断合并流,避免一直 ping。
 // ─────────────────────────────────────────────────────────────
 
@@ -26,17 +27,21 @@ export function buildSearchSseStream(
   const { taskId, events, getTask } = options
   const heartbeat = options.heartbeat ?? defaultHeartbeat()
 
-  const live: Stream.Stream<SseClientEvent> = Stream.fromPubSub(events).pipe(
-    Stream.filter((ev): ev is TaskEvent => ev.task.id === taskId),
-    Stream.map(toClientEvent),
-  )
-
-  const snapshot: Stream.Stream<SseClientEvent> = Stream.fromEffect(getTask(taskId)).pipe(
-    Stream.flatMap((opt) => Stream.fromIterable(snapshotEvents(opt))),
-  )
-
-  return Stream.merge(snapshot, Stream.merge(live, heartbeat)).pipe(
-    Stream.takeUntil((ev) => ev.event === "result" || ev.event === "error"),
+  return Stream.unwrap(
+    Effect.gen(function* () {
+      const subscription = yield* PubSub.subscribe(events)
+      const opt = yield* getTask(taskId)
+      const live = Stream.fromSubscription(subscription).pipe(
+        Stream.filter((ev) => ev.task.id === taskId),
+        Stream.map(toClientEvent),
+      )
+      return Stream.concat(
+        Stream.fromIterable(snapshotEvents(opt)),
+        Stream.merge(live, heartbeat),
+      ).pipe(
+        Stream.takeUntil((ev) => ev.event === "result" || ev.event === "error"),
+      )
+    }),
   )
 }
 
@@ -59,8 +64,14 @@ function toClientEvent(ev: TaskEvent): SseClientEvent {
 
 function snapshotEvents(opt: Option.Option<Task>): readonly SseClientEvent[] {
   const task = Option.getOrNull(opt)
+  if (task == null) {
+    return [
+      { event: "task", data: null },
+      { event: "error", data: { error: "任务不存在" } },
+    ]
+  }
   const events: SseClientEvent[] = [{ event: "task", data: task }]
-  if (task?.status === "done") events.push({ event: "result", data: task })
-  if (task?.status === "error") events.push({ event: "error", data: task })
+  if (task.status === "done") events.push({ event: "result", data: task })
+  if (task.status === "error") events.push({ event: "error", data: task })
   return events
 }

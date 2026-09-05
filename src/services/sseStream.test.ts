@@ -147,6 +147,44 @@ test("heartbeat is interrupted after done", async () => {
   assert.equal(pingsAfterResult.length, 0)
 })
 
+test("does not miss done published while snapshot still reads running", async () => {
+  const collected = await run(
+    Effect.gen(function* () {
+      const events = yield* PubSub.unbounded<TaskEvent>()
+      const running = makeTask("running")
+      const done = makeTask("done")
+      const getTask = () =>
+        Effect.gen(function* () {
+          yield* PubSub.publish(events, { _tag: "done", task: done })
+          return Option.some(running)
+        })
+      return yield* collectUntilDone(events, getTask, Effect.void)
+    }),
+  )
+
+  const meaningful = collected.filter((ev) => ev.event !== "ping")
+  assert.equal(meaningful.at(-1)?.event, "result")
+})
+
+test("missing task emits error and completes", async () => {
+  const collected = await run(
+    Effect.gen(function* () {
+      const events = yield* PubSub.unbounded<TaskEvent>()
+      return yield* collectUntilDone(
+        events,
+        () => Effect.succeed(Option.none()),
+        Effect.void,
+      )
+    }),
+  )
+
+  assert.equal(collected.at(-1)?.event, "error")
+  assert.deepEqual(
+    collected.filter((ev) => ev.event !== "ping").map((ev) => ev.event),
+    ["task", "error"],
+  )
+})
+
 test("encodeSse writes event and data lines", () => {
   const bytes = encodeSse({ event: "ping", data: { ts: 1 } })
   assert.equal(new TextDecoder().decode(bytes), "event: ping\ndata: {\"ts\":1}\n\n")
