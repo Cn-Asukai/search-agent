@@ -1,4 +1,4 @@
-import { Effect, Layer, Duration, Fiber, Stream, Schedule, Option, Schema } from "effect"
+import { Effect, Layer, Duration, Fiber, Stream, Option, Schema } from "effect"
 import { NodeHttpServer } from "@effect/platform-node"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
@@ -7,7 +7,7 @@ import { OpenCode, OpenCodeLive, OpenCodeOps, OpenCodeOpsLive } from "./services
 import { EventBridge, EventBridgeLive, eventLoop } from "./services/eventBridge.js"
 import { TaskManager, TaskManagerLive, type TaskManagerService } from "./services/taskManager.js"
 import { SearchRunner, SearchRunnerLive } from "./services/searchRunner.js"
-import type { SseClientEvent, TaskEvent } from "./domain/search.js"
+import { buildSearchSseStream, encodeSse } from "./services/sseStream.js"
 
 // ─────────────────────────────────────────────────────────────
 // 应用组装:services layers + HttpRouter 路由层 → NodeHttpServer
@@ -175,37 +175,16 @@ function syncResponse(
   )
 }
 
-/** SSE 模式:task → progress... → result / error;15s 心跳 */
+/** SSE 模式:task → progress... → result / error 后结束;进行中 15s 心跳 */
 function sseResponse(
   taskId: string,
   tasks: TaskManagerService,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse> {
-  const events: Stream.Stream<SseClientEvent> = Stream.fromPubSub(tasks.events).pipe(
-    Stream.filter((ev): ev is TaskEvent => ev.task.id === taskId),
-    Stream.map((ev): SseClientEvent => {
-      switch (ev._tag) {
-        case "progress":
-          return { event: "progress", data: ev.entry }
-        case "done":
-          return { event: "result", data: ev.task }
-        case "error":
-          return { event: "error", data: ev.task }
-      }
-    }),
-  )
-
-  const initial: Stream.Stream<SseClientEvent> = Stream.fromEffect(
-    tasks.get(taskId).pipe(
-      Effect.map((t) => ({ event: "task" as const, data: Option.getOrNull(t) })),
-    ),
-  )
-
-  const heartbeat: Stream.Stream<SseClientEvent> = Stream.fromEffectSchedule(
-    Effect.sync((): SseClientEvent => ({ event: "ping", data: { ts: Date.now() } })),
-    Schedule.spaced("15 seconds"),
-  )
-
-  const all: Stream.Stream<SseClientEvent> = Stream.merge(initial, Stream.merge(events, heartbeat))
+  const all = buildSearchSseStream({
+    taskId,
+    events: tasks.events,
+    getTask: tasks.get,
+  })
 
   return Effect.succeed(
     HttpServerResponse.stream(all.pipe(Stream.map(encodeSse)), {
@@ -217,12 +196,6 @@ function sseResponse(
       },
     }),
   )
-}
-
-function encodeSse(ev: SseClientEvent): Uint8Array {
-  const payload = JSON.stringify(ev.data)
-  const lines = [`event: ${ev.event}`, `data: ${payload}`, "", ""]
-  return new TextEncoder().encode(lines.join("\n"))
 }
 
 // ─────────────────────────────────────────────────────────────

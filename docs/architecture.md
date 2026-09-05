@@ -79,7 +79,7 @@ SearchRunner **不订** `TaskManager.events`。它只往表上写；写表时 Ta
 2. 路由 `SearchRunner.launch(id)` → **立刻返回**（执行在后台 fork）。
 3. 然后按 `stream` 分叉：
    - `false`：HTTP 卡住订 `TaskManager.events`，等到本任务 `done`/`error`（或超过 `SYNC_MAX_WAIT` 回 202）。
-   - `true`：挂 SSE，把该任务的 `progress` / `result` / `error` 推给客户端。
+   - `true`：挂 SSE，把该任务的 `progress` / `result` / `error` 推给客户端；`result` / `error` 之后结束（不再 ping）。
 4. 后台 `launch`：先抢并发槽（`TaskManager.semaphore`），再 `runTask`：
    - 建 opencode session，提交 prompt（带 JSON Schema）
    - 一边听 EventBridge：工具调用 → 中文进度写进任务表
