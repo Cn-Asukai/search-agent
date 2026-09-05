@@ -101,7 +101,7 @@ curl -s -X POST http://localhost:8787/api/search \
   -d '{"query":"転生したら剣でした","type":"novel"}' | jq
 ```
 
-**SSE 模式**(`stream: true`):依次推送 `task` → 多条 `progress`(工具调用进度)→ `result` / `error`:
+**SSE 模式**(`stream: true`):依次推送 `task` → 多条 `progress`(工具调用进度)→ `result` / `error`,终态事件之后流结束(不再 ping):
 
 ```bash
 curl -N -X POST http://localhost:8787/api/search \
