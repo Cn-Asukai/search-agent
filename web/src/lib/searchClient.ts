@@ -234,6 +234,9 @@ export function applySseEvent(session: SearchSession, ev: ParsedSseEvent): void 
   if (ev.event === "ping") return
   if (ev.event === "task") {
     session.task = asTask(ev.data, session.task)
+    if (session.task?.progress.length) {
+      session.progress = [...session.task.progress]
+    }
     return
   }
   if (ev.event === "progress") {
@@ -386,10 +389,28 @@ export function createSearchClient(config: SearchClientConfig = {}) {
       body: JSON.stringify({ query, type: input.type, stream: true }),
       signal: handlers.signal,
     })
+    return consumeSearchSse(res, handlers, "检索请求失败")
+  }
 
+  async function attachStream(id: string, handlers: SearchStreamHandlers = {}): Promise<SearchSession> {
+    const taskId = id.trim()
+    if (!taskId) throw new Error("缺少任务 id")
+    const res = await fetchImpl(joinUrl(baseUrl, `/api/search/${encodeURIComponent(taskId)}`), {
+      method: "GET",
+      headers: { Accept: "text/event-stream" },
+      signal: handlers.signal,
+    })
+    return consumeSearchSse(res, handlers, "续接任务失败")
+  }
+
+  async function consumeSearchSse(
+    res: Response,
+    handlers: SearchStreamHandlers,
+    errorPrefix: string,
+  ): Promise<SearchSession> {
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(httpErrorMessage("检索请求失败", res.status, text))
+      throw new Error(httpErrorMessage(errorPrefix, res.status, text))
     }
     if (!res.body) throw new Error("检索响应没有 body")
 
@@ -409,6 +430,7 @@ export function createSearchClient(config: SearchClientConfig = {}) {
     if (!session.view && session.task?.id) {
       const task = await getTask(session.task.id)
       session.task = task
+      if (task.progress.length) session.progress = [...task.progress]
       if (task.status === "done" || task.status === "error") {
         session.view = mapTaskToView(task)
         if (session.view.kind === "result") handlers.onResult?.(session.view)
@@ -469,7 +491,7 @@ export function createSearchClient(config: SearchClientConfig = {}) {
     return (await res.json()) as HealthInfo
   }
 
-  return { searchStream, getTask, listRecent, health }
+  return { searchStream, attachStream, getTask, listRecent, health }
 }
 
 function httpErrorMessage(prefix: string, status: number, text: string): string {

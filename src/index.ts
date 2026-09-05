@@ -122,6 +122,16 @@ const searchByIdRoute = HttpRouter.add("GET", "/api/search/:id", (req) =>
     if (!id) {
       return HttpServerResponse.jsonUnsafe({ error: "缺少任务 id" }, { status: 400 })
     }
+    if (wantsSse(req)) {
+      const taskOpt = yield* tasks.get(id)
+      if (Option.isNone(taskOpt)) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "任务不存在(服务重启后内存任务会被清除)" },
+          { status: 404 },
+        )
+      }
+      return yield* sseResponse(id, tasks)
+    }
     const taskOpt = yield* tasks.get(id)
     if (Option.isNone(taskOpt)) {
       return HttpServerResponse.jsonUnsafe(
@@ -175,6 +185,13 @@ function syncResponse(
   )
 }
 
+function wantsSse(req: { readonly headers: { readonly [key: string]: string }; readonly url: string }): boolean {
+  const accept = req.headers["accept"] ?? ""
+  if (accept.includes("text/event-stream")) return true
+  const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?") + 1) : ""
+  return new URLSearchParams(query).get("stream") === "true"
+}
+
 /** SSE 模式:task → progress... → result / error 后结束;进行中 15s 心跳 */
 function sseResponse(
   taskId: string,
@@ -221,7 +238,7 @@ const program = Effect.gen(function* () {
       `agent=${config.opencodeAgent}${config.opencodeModel ? `,模型=${config.opencodeModel}` : "(模型取自 opencode.jsonc)"}`,
   )
   console.log(
-    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /health",
+    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | GET /health",
   )
 
   yield* eventLoop(opencode.client, bridge.events).pipe(Effect.forkScoped)

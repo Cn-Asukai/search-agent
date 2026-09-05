@@ -198,4 +198,20 @@ describe("shipped search client against HTTP SSE stub", () => {
     expect(view.official?.exists).toBe(true)
     expect(view.fan?.exists).toBe(true)
   })
+
+  it("attachStream GETs the existing task SSE and does not POST a new search", async () => {
+    stub = await startProtocolStub()
+    const client = createSearchClient({ baseUrl: stub.baseUrl })
+    const created = await client.searchStream({ query: "転生したら剣でした", type: "novel" })
+    expect(created.task?.id).toBe("stub-task-1")
+
+    const attached = await client.attachStream(created.task!.id)
+    expect(stub.lastRequest?.method).toBe("GET")
+    expect(stub.lastRequest?.url).toBe("/api/search/stub-task-1")
+    expect(stub.lastRequest?.accept).toContain("text/event-stream")
+    expect(attached.progress.map((p) => p.message)).toContain("正在联网搜索")
+    expect(attached.view?.kind).toBe("result")
+    expect(attached.view?.verdict).toBe("both")
+    expect(attached.view?.summary).toMatch(/転生したら剣でした/)
+  })
 })

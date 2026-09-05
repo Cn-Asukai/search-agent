@@ -164,6 +164,8 @@ curl -N -X POST http://localhost:8787/api/search \
 
 查询任务状态与结果(任务保存在内存中,服务重启即清空;超过等待上限的同步请求也可用它轮询)。
 
+`Accept: text/event-stream` 或 `?stream=true` 时，对**已有任务**再挂一条 SSE（先推当前快照，再推后续 `progress` / `result` / `error`），刷新页面后续上同一任务，不会新建检索。
+
 ### `GET /api/search`
 
 最近任务列表(id/查询/状态/时间,不含进度与结果明细),便于排查与轮询。

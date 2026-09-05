@@ -12,6 +12,7 @@ export type ProtocolStub = {
   server: Server
   baseUrl: string
   lastSearchBody: unknown
+  lastRequest: { method: string; url: string; accept: string } | null
   setMode: (mode: StubMode) => void
   close: () => Promise<void>
 }
@@ -83,9 +84,15 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
   let mode: StubMode = "result"
   let lastSearchBody: unknown
   let lastTask: Task | null = null
+  let lastRequest: ProtocolStub["lastRequest"] = null
 
   const server = createServer((req: IncomingMessage, res: ServerResponse) => {
     const url = new URL(req.url ?? "/", "http://127.0.0.1")
+    lastRequest = {
+      method: req.method ?? "",
+      url: url.pathname + url.search,
+      accept: req.headers.accept ?? "",
+    }
     res.setHeader("Access-Control-Allow-Origin", "*")
     res.setHeader("Access-Control-Allow-Methods", "GET,POST,OPTIONS")
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization")
@@ -137,6 +144,21 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
       if (!lastTask || lastTask.id !== id) {
         res.writeHead(404, { "Content-Type": "application/json" })
         res.end(JSON.stringify({ error: "任务不存在(服务重启后内存任务会被清除)" }))
+        return
+      }
+      const accept = req.headers.accept ?? ""
+      const stream = accept.includes("text/event-stream") || url.searchParams.get("stream") === "true"
+      if (stream) {
+        res.writeHead(200, {
+          "Content-Type": "text/event-stream",
+          "Cache-Control": "no-cache",
+          Connection: "keep-alive",
+          "X-Accel-Buffering": "no",
+        })
+        res.write(encodeSse("task", lastTask))
+        if (lastTask.status === "error") res.write(encodeSse("error", lastTask))
+        else if (lastTask.status === "done") res.write(encodeSse("result", lastTask))
+        res.end()
         return
       }
       res.writeHead(200, { "Content-Type": "application/json" })
@@ -205,6 +227,9 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
         baseUrl: `http://127.0.0.1:${addr.port}`,
         get lastSearchBody() {
           return lastSearchBody
+        },
+        get lastRequest() {
+          return lastRequest
         },
         setMode(next) {
           mode = next

@@ -14,6 +14,13 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import {
+  clearActiveTaskId,
+  readActiveTaskId,
+  readTaskIdFromSearch,
+  replaceTaskIdInUrl,
+  writeActiveTaskId,
+} from "@/lib/activeTask"
 import { decodeUrlForDisplay, decodeUrlsInText } from "@/lib/displayUrl"
 import {
   createSearchClient,
@@ -24,6 +31,8 @@ import {
   type HealthInfo,
   type MappedSearchView,
   type ProgressEntry,
+  type SearchStreamHandlers,
+  type Task,
   type TaskSummary,
   type WorkType,
 } from "@/lib/searchClient"
@@ -44,6 +53,8 @@ export default function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null)
   const [healthError, setHealthError] = useState<string | null>(null)
   const [recent, setRecent] = useState<TaskSummary[]>([])
+  const abortRef = useRef<AbortController | null>(null)
+  const didResume = useRef(false)
 
   const refreshHealth = useCallback(async () => {
     try {
@@ -74,6 +85,92 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [refreshHealth, refreshRecent])
 
+  useEffect(() => {
+    if (didResume.current) return
+    const id = readTaskIdFromSearch(window.location.search) ?? readActiveTaskId()
+    if (!id) return
+    didResume.current = true
+    void followTask(id, "attach")
+  }, [])
+
+  function nextSignal(): AbortSignal {
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+    return controller.signal
+  }
+
+  function streamHandlers(): SearchStreamHandlers {
+    return {
+      signal: nextSignal(),
+      onTask(task: Task) {
+        writeActiveTaskId(task.id)
+        replaceTaskIdInUrl(task.id)
+        setQuery(task.query)
+        setType(task.type)
+        if (task.progress.length) setProgress(task.progress)
+      },
+      onProgress: (entry) =>
+        setProgress((prev) => {
+          if (prev.some((item) => item.seq === entry.seq && item.message === entry.message)) return prev
+          return [...prev, entry]
+        }),
+      onResult: (next) => {
+        clearActiveTaskId()
+        replaceTaskIdInUrl(null)
+        setView(next)
+      },
+      onError: (next) => {
+        clearActiveTaskId()
+        replaceTaskIdInUrl(null)
+        setView(next)
+      },
+    }
+  }
+
+  async function followTask(id: string, mode: "attach" | "open") {
+    setFormError(null)
+    setRunning(true)
+    setView(null)
+    try {
+      if (mode === "open") {
+        const snapshot = await client.getTask(id)
+        setQuery(snapshot.query)
+        setType(snapshot.type)
+        setProgress(snapshot.progress ?? [])
+        if (snapshot.status !== "queued" && snapshot.status !== "running") {
+          setView(mapTaskToView(snapshot))
+          clearActiveTaskId()
+          replaceTaskIdInUrl(null)
+          return
+        }
+      }
+      const session = await client.attachStream(id, streamHandlers())
+      if (session.task) {
+        setQuery(session.task.query)
+        setType(session.task.type)
+      }
+      if (session.progress.length) setProgress(session.progress)
+      if (session.view) setView(session.view)
+    } catch (err) {
+      if (isAbortError(err)) return
+      clearActiveTaskId()
+      replaceTaskIdInUrl(null)
+      setView({
+        kind: "error",
+        taskId: id,
+        query,
+        type,
+        status: "error",
+        error: err instanceof Error ? err.message : String(err),
+      })
+    } finally {
+      setRunning(false)
+      void refreshRecent()
+      void refreshHealth()
+    }
+  }
+
   async function onSubmit(event: FormEvent) {
     event.preventDefault()
     const trimmed = query.trim()
@@ -86,17 +183,13 @@ export default function App() {
     setProgress([])
     setView(null)
     try {
-      const session = await client.searchStream(
-        { query: trimmed, type },
-        {
-          onProgress: (entry) => setProgress((prev) => [...prev, entry]),
-          onResult: (next) => setView(next),
-          onError: (next) => setView(next),
-        },
-      )
+      const session = await client.searchStream({ query: trimmed, type }, streamHandlers())
       if (session.view) setView(session.view)
       else if (session.progress.length) setProgress(session.progress)
     } catch (err) {
+      if (isAbortError(err)) return
+      clearActiveTaskId()
+      replaceTaskIdInUrl(null)
       setView({
         kind: "error",
         taskId: "",
@@ -113,26 +206,7 @@ export default function App() {
   }
 
   async function openRecent(id: string) {
-    setFormError(null)
-    setRunning(true)
-    try {
-      const task = await client.getTask(id)
-      setQuery(task.query)
-      setType(task.type)
-      setProgress(task.progress ?? [])
-      setView(mapTaskToView(task))
-    } catch (err) {
-      setView({
-        kind: "error",
-        taskId: id,
-        query,
-        type,
-        status: "error",
-        error: err instanceof Error ? err.message : String(err),
-      })
-    } finally {
-      setRunning(false)
-    }
+    await followTask(id, "open")
   }
 
   const healthOk = health?.status === "ok" && !healthError
@@ -375,6 +449,10 @@ function Row({ label, value }: { label: string; value: string }) {
       <span className="text-right">{value}</span>
     </div>
   )
+}
+
+function isAbortError(err: unknown): boolean {
+  return (err instanceof DOMException || err instanceof Error) && err.name === "AbortError"
 }
 
 function statusLabel(status: TaskSummary["status"]): string {
