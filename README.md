@@ -93,7 +93,7 @@ curl http://localhost:8787/api/health
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建 **linux/amd64 + linux/arm64** 清单并同时推送到 GHCR 与 CNB Docker 制品库。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-docker.yml`)会构建 **linux/amd64 + linux/arm64** 清单并同时推送到 GHCR 与 CNB Docker 制品库。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。
 
 ```bash
 git tag v0.1.0
