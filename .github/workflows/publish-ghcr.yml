@@ -1,7 +1,12 @@
-# 推送 tag 时构建根目录 Dockerfile,推送到 GitHub Container Registry。
-# 镜像: ghcr.io/<owner>/<repo>（linux/amd64 + linux/arm64 清单）
-#   tag v1.2.3 → :1.2.3 :1.2 :v1.2.3,非预发布再打 :latest
-name: Publish to GHCR
+# 推送 tag 时构建根目录 Dockerfile，同时推送到 GitHub Container Registry 与 CNB Docker 制品库。
+# 镜像:
+#   ghcr.io/<owner>/<repo>
+#   docker.cnb.cool/cnb.awy5tzjjaga/search-agent
+# （linux/amd64 + linux/arm64 清单）
+#   tag v1.2.3 → :1.2.3 :1.2 :v1.2.3，非预发布再打 :latest
+#
+# CNB 推送需仓库 Secrets: GIT_PASSWORD（CNB 访问令牌，用户名固定 cnb；需制品库写权限）
+name: Publish Docker images
 
 on:
   push:
@@ -9,8 +14,10 @@ on:
       - "*"
 
 env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+  GHCR_REGISTRY: ghcr.io
+  CNB_REGISTRY: docker.cnb.cool
+  GHCR_IMAGE: ${{ github.repository }}
+  CNB_IMAGE: cnb.awY5TZjjAGA/search-agent
 
 jobs:
   build-and-push:
@@ -22,7 +29,7 @@ jobs:
       packages: write
       id-token: write
     concurrency:
-      group: ghcr-${{ github.ref }}
+      group: docker-publish-${{ github.ref }}
       cancel-in-progress: false
     steps:
       - name: Checkout
@@ -37,19 +44,29 @@ jobs:
       - name: Log in to GHCR
         uses: docker/login-action@v4
         with:
-          registry: ${{ env.REGISTRY }}
+          registry: ${{ env.GHCR_REGISTRY }}
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Log in to CNB
+        uses: docker/login-action@v4
+        with:
+          registry: ${{ env.CNB_REGISTRY }}
+          username: cnb
+          password: ${{ secrets.GIT_PASSWORD }}
 
       - name: Extract Docker metadata
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+          images: |
+            ${{ env.GHCR_REGISTRY }}/${{ env.GHCR_IMAGE }}
+            ${{ env.CNB_REGISTRY }}/${{ env.CNB_IMAGE }}
           tags: |
             type=semver,pattern={{version}}
             type=semver,pattern={{major}}.{{minor}}
             type=ref,event=tag
+            type=raw,value=latest,enable=${{ github.ref_type == 'tag' && !contains(github.ref_name, '-') }}
 
       - name: Build and push
         uses: docker/build-push-action@v7

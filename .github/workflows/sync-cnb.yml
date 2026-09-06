@@ -1,0 +1,23 @@
+# 每次 push（含 tag）把本仓库完整同步到 CNB 个人仓。
+# 需在仓库 Settings → Secrets and variables → Actions 配置:
+#   GIT_PASSWORD  CNB 访问令牌（用户名固定为 cnb；需仓库读写）
+name: Sync to CNB
+on: [push]
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Sync to CNB Repository
+        uses: docker://tencentcom/git-sync
+        env:
+          PLUGIN_TARGET_URL: "https://cnb.cool/cnb.awY5TZjjAGA/search-agent.git"
+          PLUGIN_AUTH_TYPE: "https"
+          PLUGIN_USERNAME: "cnb"
+          PLUGIN_PASSWORD: ${{ secrets.GIT_PASSWORD }}
+          PLUGIN_FORCE: "true"
+          PLUGIN_PUSH_TAGS: "true"
