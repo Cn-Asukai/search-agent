@@ -1,7 +1,7 @@
 # 推送 tag 时构建根目录 Dockerfile，同时推送到 GitHub Container Registry 与 CNB Docker 制品库。
 # 镜像:
 #   ghcr.io/<owner>/<repo>
-#   docker.cnb.cool/cnb.awy5tzjjaga/search-agent
+#   docker.cnb.cool/longlian.online/search-agent
 # （linux/amd64 + linux/arm64 清单）
 #   tag v1.2.3 → :1.2.3 :1.2 :v1.2.3，非预发布再打 :latest
 #
@@ -17,7 +17,7 @@ env:
   GHCR_REGISTRY: ghcr.io
   CNB_REGISTRY: docker.cnb.cool
   GHCR_IMAGE: ${{ github.repository }}
-  CNB_IMAGE: cnb.awY5TZjjAGA/search-agent
+  CNB_IMAGE: longlian.online/search-agent
 
 jobs:
   build-and-push:
