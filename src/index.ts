@@ -45,7 +45,7 @@ const SearchRequestSchema = Schema.Struct({
   stream: Schema.optional(Schema.Boolean),
 })
 
-const healthRoute = HttpRouter.add("GET", "/health", () =>
+const healthRoute = HttpRouter.add("GET", "/api/health", () =>
   Effect.gen(function* () {
     const tasks = yield* TaskManager
     const opencode = yield* OpenCode
@@ -238,7 +238,7 @@ const program = Effect.gen(function* () {
       `agent=${config.opencodeAgent}${config.opencodeModel ? `,模型=${config.opencodeModel}` : "(模型取自 opencode.jsonc)"}`,
   )
   console.log(
-    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | GET /health",
+    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | GET /api/health",
   )
 
   yield* eventLoop(opencode.client, bridge.events).pipe(Effect.forkScoped)

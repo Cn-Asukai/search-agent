@@ -6,7 +6,7 @@
  *   events: task → progress* → result | error
  *   GET /api/search/:id  re-fetch a task
  *   GET /api/search      recent list
- *   GET /health
+ *   GET /api/health
  */
 
 export const WORK_TYPES = ["novel", "manga", "unknown"] as const
@@ -484,7 +484,7 @@ export function createSearchClient(config: SearchClientConfig = {}) {
   }
 
   async function health(): Promise<HealthInfo> {
-    const res = await fetchImpl(joinUrl(baseUrl, "/health"), {
+    const res = await fetchImpl(joinUrl(baseUrl, "/api/health"), {
       headers: { Accept: "application/json" },
     })
     if (!res.ok) throw new Error(`health ${res.status}`)

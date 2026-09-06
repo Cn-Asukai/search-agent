@@ -199,6 +199,17 @@ describe("shipped search client against HTTP SSE stub", () => {
     expect(view.fan?.exists).toBe(true)
   })
 
+  it("GET /api/health returns service status", async () => {
+    stub = await startProtocolStub()
+    const client = createSearchClient({ baseUrl: stub.baseUrl })
+    const info = await client.health()
+    expect(stub.lastRequest?.method).toBe("GET")
+    expect(stub.lastRequest?.url).toBe("/api/health")
+    expect(info.status).toBe("ok")
+    expect(info.service).toBe("search-agent-stub")
+    expect(info.opencode?.healthy).toBe(true)
+  })
+
   it("attachStream GETs the existing task SSE and does not POST a new search", async () => {
     stub = await startProtocolStub()
     const client = createSearchClient({ baseUrl: stub.baseUrl })

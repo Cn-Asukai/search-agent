@@ -11,4 +11,4 @@ npm run build
 npm run preview    # http://127.0.0.1:4173
 ```
 
-`VITE_API_BASE` 可指向独立 API origin；默认空字符串，请求走同源 `/api` 与 `/health`（由 Vite proxy 转到 `127.0.0.1:8787`）。
+`VITE_API_BASE` 可指向独立 API origin；默认空字符串，请求走同源 `/api`（由 Vite proxy 转到 `127.0.0.1:8787`）。

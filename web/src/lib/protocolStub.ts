@@ -1,5 +1,5 @@
 /**
- * Local HTTP stub of POST /api/search (SSE), GET /api/search/:id, GET /api/search, GET /health.
+ * Local HTTP stub of POST /api/search (SSE), GET /api/search/:id, GET /api/search, GET /api/health.
  * Speaks the same event:/data: JSON framing as encodeSse. Used by client tests and flow verification.
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http"
@@ -102,7 +102,7 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
       return
     }
 
-    if (req.method === "GET" && url.pathname === "/health") {
+    if (req.method === "GET" && url.pathname === "/api/health") {
       res.writeHead(200, { "Content-Type": "application/json" })
       res.end(
         JSON.stringify({

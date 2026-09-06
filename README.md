@@ -38,7 +38,7 @@ npm run dev            # 开发模式(热重载);生产用 npm start
 
 ## 前端（Vite + React + shadcn）
 
-浏览器界面在 [`web/`](web/)。开发时 Vite 把 `/api` 与 `/health` 代理到本服务 `http://127.0.0.1:8787`。
+浏览器界面在 [`web/`](web/)。开发时 Vite 把 `/api` 代理到本服务 `http://127.0.0.1:8787`。
 
 ```bash
 # 终端 1：本服务
@@ -64,7 +64,7 @@ npm run web:test
 
 页面可提交 `query` + `type`（`novel` | `manga` | `unknown`），以 `stream: true` 调用 `POST /api/search`，渲染 `progress` 与终态 `result` / `error`；也可按任务 id 调用 `GET /api/search/:id`。
 
-启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
+启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/api/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
 
 ## Docker 部署(推荐)
 
@@ -80,7 +80,7 @@ docker compose pull
 docker compose up -d
 
 # 3. 验证
-curl http://localhost:8787/health
+curl http://localhost:8787/api/health
 ```
 
 私有 GHCR 包需先登录:`echo $GITHUB_TOKEN | docker login ghcr.io -u <github-user> --password-stdin`。
@@ -170,7 +170,7 @@ curl -N -X POST http://localhost:8787/api/search \
 
 最近任务列表(id/查询/状态/时间,不含进度与结果明细),便于排查与轮询。
 
-### `GET /health`
+### `GET /api/health`
 
 本服务 + opencode server 健康状态。
 

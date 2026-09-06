@@ -328,7 +328,7 @@ export default function App() {
           <Card>
             <CardHeader>
               <CardTitle>服务状态</CardTitle>
-              <CardDescription>GET /health</CardDescription>
+              <CardDescription>GET /api/health</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col gap-2 text-sm">
               <Row label="服务" value={health?.service ?? "—"} />
