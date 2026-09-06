@@ -26,7 +26,8 @@
 | 工作流 | 文件 | 何时触发 |
 |---|---|---|
 | OpenCodeReview PR Review | `.github/workflows/ocr-review.yml` | `pull_request_target`：opened / synchronize / reopened |
-| Publish to GHCR | `.github/workflows/publish-ghcr.yml` | 仅 tag push；**PR 不会触发，不要空等** |
+| Publish Docker images | `.github/workflows/publish-docker.yml` | 仅 tag push；推送 GHCR 与 CNB 镜像。**PR 不会触发，不要空等** |
+| Sync to CNB | `.github/workflows/sync-cnb.yml` | 任意 `push`（含 tag）；同步到 CNB `longlian.online/search-agent` |
 
 ### 流程
 

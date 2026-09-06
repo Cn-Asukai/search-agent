@@ -93,18 +93,28 @@ curl http://localhost:8787/api/health
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建 **linux/amd64 + linux/arm64** 清单并推送到 GHCR。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-docker.yml`)会构建 **linux/amd64 + linux/arm64** 清单并同时推送到 GHCR 与 CNB Docker 制品库。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。也可本地构建:
+semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。镜像地址:
+
+- GHCR:`ghcr.io/cn-asukai/search-agent`
+- CNB:`docker.cnb.cool/longlian.online/search-agent`
+
+也可本地构建:
 
 ```bash
 docker build -t ghcr.io/cn-asukai/search-agent:latest .
 docker push ghcr.io/cn-asukai/search-agent:latest
+
+# CNB 制品库(用户名固定 cnb,密码为访问令牌)
+echo "$CNB_TOKEN" | docker login docker.cnb.cool -u cnb --password-stdin
+docker tag ghcr.io/cn-asukai/search-agent:latest docker.cnb.cool/longlian.online/search-agent:latest
+docker push docker.cnb.cool/longlian.online/search-agent:latest
 ```
 
 PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/cicd) 会自动审查 diff(`.github/workflows/ocr-review.yml`);也可在 PR 评论 `/open-code-review` 或 `@open-code-review` 手动重跑。需在仓库 **Settings → Secrets and variables → Actions** 配置:
@@ -115,6 +125,7 @@ PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/
 | `OCR_LLM_AUTH_TOKEN` | Secret | LLM 鉴权 token |
 | `OCR_LLM_MODEL` | Variable | 模型名 |
 | `OCR_LLM_USE_ANTHROPIC` | Variable | Anthropic 填 `true`,OpenAI 兼容填 `false` |
+| `GIT_PASSWORD` | Secret | CNB 访问令牌(用户名固定 `cnb`)。同步代码需仓库读写;推送镜像需制品库写权限 |
 
 ## 接口
 
