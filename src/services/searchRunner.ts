@@ -67,8 +67,16 @@ export const SearchRunnerLive: Layer.Layer<
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
         yield* tasks.appendProgress(taskId, { kind: "status", message: "任务开始,正在创建检索会话" })
 
+        const createStarted = Date.now()
         const sessionID = yield* ops.createSession
         yield* tasks.update(taskId, { sessionId: sessionID })
+        yield* tasks.appendTraceStep(sessionID, {
+          kind: "call",
+          ts: createStarted,
+          method: "session.create",
+          durationMs: Date.now() - createStarted,
+          response: { id: sessionID },
+        })
         yield* tasks.appendProgress(taskId, {
           kind: "status",
           message: "会话已创建,正在分析并联网检索",

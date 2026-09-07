@@ -11,7 +11,7 @@
 
 ## 前置安装
 
-1. **Node.js >= 20.12**(用了原生 `process.loadEnvFile`)
+1. **Node.js >= 22.16**(SQLite 用 `node:sqlite`;也用了原生 `process.loadEnvFile`)
 2. **opencode CLI**(本服务启动时自动 spawn `opencode serve`):
 
    ```bash
@@ -89,7 +89,7 @@ curl http://localhost:8787/api/health
 
 - **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
 - **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
-- **数据持久化**:opencode 会话存 `opencode-data` 卷,websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
+- **数据持久化**:opencode 会话存 `opencode-data` 卷,任务与原始 opencode 链路存 `agent-data` 卷(`SQLITE_PATH=/home/node/data/search-agent.sqlite`),websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
@@ -173,7 +173,7 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ### `GET /api/search/:id`
 
-查询任务状态与结果(任务保存在内存中,服务重启即清空;超过等待上限的同步请求也可用它轮询)。
+查询任务状态与结果(任务保存在 SQLite,服务重启后仍可查;超过等待上限的同步请求也可用它轮询)。原始 opencode 调用链路在库表 `tasks.opencode_trace`,不通过本接口返回。
 
 `Accept: text/event-stream` 或 `?stream=true` 时，对**已有任务**再挂一条 SSE（先推当前快照，再推后续 `progress` / `result` / `error`），刷新页面后续上同一任务，不会新建检索。
 
@@ -194,7 +194,7 @@ curl -N -X POST http://localhost:8787/api/search \
 | `prompts/hanhua-search.md` | 检索 agent 的系统提示词(检索策略、判定标准、反编造要求) |
 | `.env`(参考 `.env.example`) | 模型网关、端口、并发/超时、鉴权、WEBSEARCH_TOKEN |
 
-常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 5 分钟)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
+常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 5 分钟)、`SQLITE_PATH`(默认 `./data/search-agent.sqlite`)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
 
 本服务启动时自动 spawn 内嵌 `opencode serve`。检索产生的 session 会保留在本机(`~/.local/share/opencode`),可用于调试回看;不需要时可定期用 opencode CLI 清理。
 
@@ -210,7 +210,7 @@ curl -N -X POST http://localhost:8787/api/search \
 │   ├── index.ts              # 入口:Layer 装配、HttpRouter 路由、SSE、事件桥
 │   ├── env.ts                # 配置(AppConfig)
 │   ├── domain/search.ts      # 领域 Schema
-│   └── services/             # opencode / 事件桥 / 任务表 / 检索编排
+│   └── services/             # sqlite / opencode / 事件桥 / 任务表 / 检索编排
 ├── web/                      # Vite + React + shadcn 前端（代理到 :8787）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
 └── .env.example
