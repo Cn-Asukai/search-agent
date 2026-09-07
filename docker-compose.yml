@@ -10,6 +10,7 @@
 #
 # 数据目录:
 #   - opencode-data:agent 容器的 opencode 会话/缓存(~/.local/share/opencode)
+#   - agent-data:任务 SQLite(含原始 opencode 链路)
 #   - websearch-cache:websearch 搜索缓存
 # ════════════════════════════════════════════════════════════════
 
@@ -41,6 +42,7 @@ services:
       # TASK_TIMEOUT_MS: 300000
       # MAX_CONCURRENCY: 3
       # SYNC_MAX_WAIT_MS: 1800000
+      SQLITE_PATH: /home/node/data/search-agent.sqlite
 
       # ── API 鉴权(可选)────────────────────────────────────────
       # API_AUTH_KEY: ${API_AUTH_KEY:-}
@@ -49,6 +51,8 @@ services:
     volumes:
       # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
       - opencode-data:/home/node/.local/share/opencode
+      # 任务表 + 原始 opencode 链路(tasks.opencode_trace)
+      - agent-data:/home/node/data
     depends_on:
       websearch:
         condition: service_healthy
@@ -90,4 +94,5 @@ services:
 
 volumes:
   opencode-data:
+  agent-data:
   websearch-cache:

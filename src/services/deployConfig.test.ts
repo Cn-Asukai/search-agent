@@ -41,6 +41,13 @@ test("compose pulls published images and does not build locally", () => {
   assert.doesNotMatch(active, /^\s*build:/m)
 })
 
+test("compose persists sqlite on agent-data volume", () => {
+  const compose = readRepo("docker-compose.yml")
+  const active = uncommentedLines(compose).join("\n")
+  assert.match(active, /agent-data:\/home\/node\/data/)
+  assert.match(active, /SQLITE_PATH:\s*\/home\/node\/data\/search-agent\.sqlite/)
+})
+
 test("hanhua prompt requires smartsearch and forbids search-engine SERP fetches", () => {
   const prompt = readRepo("prompts/hanhua-search.md")
   assert.match(prompt, /必须.*smartsearch|smartsearch.*必须/)

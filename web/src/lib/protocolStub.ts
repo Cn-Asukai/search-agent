@@ -143,7 +143,7 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
       const id = decodeURIComponent(url.pathname.slice("/api/search/".length))
       if (!lastTask || lastTask.id !== id) {
         res.writeHead(404, { "Content-Type": "application/json" })
-        res.end(JSON.stringify({ error: "任务不存在(服务重启后内存任务会被清除)" }))
+        res.end(JSON.stringify({ error: "任务不存在" }))
         return
       }
       const accept = req.headers.accept ?? ""
