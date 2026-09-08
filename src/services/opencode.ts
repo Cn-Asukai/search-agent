@@ -8,7 +8,6 @@ import {
 import { AppConfig } from "../env.js"
 import {
   SearchResult,
-  reconcileVerdict,
   searchResultJsonSchema,
   type OpencodeTraceCallMethod,
   type OpencodeTraceStep,
