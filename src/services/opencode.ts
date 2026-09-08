@@ -6,7 +6,7 @@ import {
   type OpencodeClient,
 } from "@opencode-ai/sdk/v2"
 import { AppConfig } from "../env.js"
-import { SearchResult, type SearchRequest } from "../domain/search.js"
+import { SearchResult, reconcileVerdict, type SearchRequest } from "../domain/search.js"
 import { searchResultJsonSchema } from "../domain/search.js"
 
 // ─────────────────────────────────────────────────────────────
@@ -226,7 +226,7 @@ export function parseStructuredResult(raw: unknown): SearchResult | null {
   ]
   for (const candidate of candidates) {
     const decoded = Schema.decodeUnknownOption(SearchResult)(candidate)
-    if (decoded._tag === "Some") return decoded.value
+    if (decoded._tag === "Some") return reconcileVerdict(decoded.value)
   }
   return null
 }

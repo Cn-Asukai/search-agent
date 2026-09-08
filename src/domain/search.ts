@@ -75,6 +75,17 @@ export const SearchResult = Schema.Struct({
 
 export type SearchResult = Schema.Schema.Type<typeof SearchResult>
 
+/** A verified source category determines the public verdict; uncertainty only applies when neither category is confirmed. */
+export function reconcileVerdict(result: SearchResult): SearchResult {
+  if (!result.official.exists && !result.fan.exists) return result
+
+  const verdict = result.official.exists
+    ? result.fan.exists ? "both" : "official"
+    : "fan"
+
+  return result.verdict === verdict ? result : { ...result, verdict }
+}
+
 // ── 任务与进度 ───────────────────────────────────────────────
 
 export const TaskStatus = Schema.Literals(["queued", "running", "done", "error"])
@@ -138,7 +149,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     verdict: {
       type: "string",
       enum: ["official", "fan", "both", "none", "uncertain"],
-      description: "official 仅官方中文;fan 仅民间汉化;both 都有;none 都无;uncertain 无法确定",
+      description: "official=仅官方中文;fan=仅民间汉化;both=两者都有;none=两者均无;uncertain=两类都无法确认。official.exists 或 fan.exists 为 true 时必须分别填 official、fan 或 both。",
     },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     work: {
