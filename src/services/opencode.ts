@@ -277,7 +277,7 @@ export function parseStructuredResult(raw: unknown): SearchResult | null {
   ]
   for (const candidate of candidates) {
     const decoded = Schema.decodeUnknownOption(SearchResult)(candidate)
-    if (decoded._tag === "Some") return decoded.value
+    if (decoded._tag === "Some") return reconcileVerdict(decoded.value)
   }
   return null
 }

@@ -20,6 +20,31 @@ test("parses a complete SearchResult", () => {
   assert.equal(parsed.work.original_title, "aaa")
 })
 
+test("derives a verdict from confirmed source categories", () => {
+  const translation = { status: "ongoing" as const, source_url: "https://example.test/translation" }
+
+  const fanOnly = parseStructuredResult({
+    ...valid,
+    official: { exists: false },
+    fan: { exists: true, translations: [translation] },
+  })
+  assert.equal(fanOnly?.verdict, "fan")
+
+  const officialOnly = parseStructuredResult({
+    ...valid,
+    official: { exists: true },
+    fan: { exists: false, translations: [] },
+  })
+  assert.equal(officialOnly?.verdict, "official")
+
+  const both = parseStructuredResult({
+    ...valid,
+    official: { exists: true },
+    fan: { exists: true, translations: [translation] },
+  })
+  assert.equal(both?.verdict, "both")
+})
+
 test("strips JSON-schema nulls on optional fields", () => {
   const withNulls = {
     ...valid,
