@@ -53,6 +53,25 @@ test("settles on completed assistant without a following idle", async () => {
   )
 })
 
+test("settles on production order: completed assistant then a single idle", async () => {
+  await run(
+    Effect.gen(function* () {
+      const events = yield* PubSub.unbounded<OpencodeEvent>()
+      const fiber = yield* waitSessionSettled(events, sessionID, Duration.millis(1500)).pipe(Effect.forkScoped)
+      yield* Effect.sleep(Duration.millis(30))
+      yield* PubSub.publish(events, assistantEvent("msg_1", { finish: "tool-calls", time: { created: 1, completed: 2 } }))
+      yield* PubSub.publish(
+        events,
+        assistantEvent("msg_2", { time: { created: 3, completed: 4 }, finish: "stop" }),
+      )
+      yield* PubSub.publish(events, idleEvent())
+      const result = yield* Fiber.join(fiber)
+      assert.equal(result.ok, true)
+      assert.equal(result.finalInfo && "id" in result.finalInfo ? result.finalInfo.id : undefined, "msg_2")
+    }),
+  )
+})
+
 test("does not settle on the first assistant message", async () => {
   await run(
     Effect.gen(function* () {
