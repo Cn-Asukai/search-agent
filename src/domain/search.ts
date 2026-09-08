@@ -120,6 +120,43 @@ export const Task = Schema.Struct({
 
 export type Task = Schema.Schema.Type<typeof Task>
 
+// ── OpenCode 原始链路(只落库,不进 HTTP Task)─────────────────
+// progress 是给客户端的中文摘要;opencode_trace 是同一次检索的原始 RPC + SSE。
+
+export const OpencodeTraceCallMethod = Schema.Literals([
+  "session.create",
+  "session.promptAsync",
+  "session.abort",
+  "session.messages",
+])
+export type OpencodeTraceCallMethod = Schema.Schema.Type<typeof OpencodeTraceCallMethod>
+
+export const OpencodeTraceCall = Schema.Struct({
+  kind: Schema.Literal("call"),
+  ts: Schema.Number,
+  method: OpencodeTraceCallMethod,
+  durationMs: Schema.Number,
+  request: Schema.optional(Schema.Unknown),
+  response: Schema.optional(Schema.Unknown),
+  error: Schema.optional(Schema.String),
+})
+
+export const OpencodeTraceEventStep = Schema.Struct({
+  kind: Schema.Literal("event"),
+  ts: Schema.Number,
+  type: Schema.String,
+  properties: Schema.Unknown,
+})
+
+export const OpencodeTraceStep = Schema.Union([OpencodeTraceCall, OpencodeTraceEventStep])
+export type OpencodeTraceStep = Schema.Schema.Type<typeof OpencodeTraceStep>
+
+export const OpencodeTrace = Schema.Struct({
+  sessionId: Schema.optional(Schema.String),
+  steps: Schema.Array(OpencodeTraceStep),
+})
+export type OpencodeTrace = Schema.Schema.Type<typeof OpencodeTrace>
+
 /** 任务事件(进度 / 终态),用于 PubSub 广播 */
 export type TaskEvent =
   | { readonly _tag: "progress"; readonly task: Task; readonly entry: ProgressEntry }

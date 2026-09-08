@@ -1,0 +1,21 @@
+{
+  "exclude": [
+    "**/package-lock.json",
+    "**/yarn.lock",
+    "**/pnpm-lock.yaml",
+    "**/bun.lock",
+    "**/bun.lockb",
+    "**/Cargo.lock",
+    "**/composer.lock",
+    "**/poetry.lock",
+    "**/Gemfile.lock",
+    "**/go.sum",
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    "**/*.min.js",
+    "**/*.min.css",
+    "**/*.map",
+    "web/src/components/ui/**"
+  ]
+}

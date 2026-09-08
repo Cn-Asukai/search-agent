@@ -11,7 +11,7 @@
 
 ## 前置安装
 
-1. **Node.js >= 20.12**(用了原生 `process.loadEnvFile`)
+1. **Node.js >= 22.16**(SQLite 用 `node:sqlite`;也用了原生 `process.loadEnvFile`)
 2. **opencode CLI**(本服务启动时自动 spawn `opencode serve`):
 
    ```bash
@@ -36,23 +36,70 @@ cp .env.example .env   # 按需修改(全部有默认值,可不改)
 npm run dev            # 开发模式(热重载);生产用 npm start
 ```
 
-启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
+## 前端（Vite + React + shadcn）
 
-## Docker 部署(推荐)
+浏览器界面在 [`web/`](web/)。开发时 Vite 把 `/api` 代理到本服务 `http://127.0.0.1:8787`。
 
-compose **只拉取远程镜像并部署**,不在本地构建。两个容器:**agent 服务**(HTTP `:8787`,镜像 `ghcr.io/cn-asukai/search-agent`)+ **websearch MCP 服务**(内网 `:8338`,镜像 `ghcr.io/daidaij/websearch-mcpserver`)。
+```bash
+# 终端 1：本服务
+npm run dev
+
+# 终端 2：前端
+npm install --prefix web
+npm run web:dev          # http://127.0.0.1:5173
+```
+
+生产构建与预览：
+
+```bash
+npm run web:build
+npm run web:preview      # http://127.0.0.1:4173，同样代理到 :8787
+```
+
+前端测试（驱动 shipped HTTP/SSE client）：
+
+```bash
+npm run web:test
+```
+
+页面可提交 `query` + `type`（`novel` | `manga` | `unknown`），以 `stream: true` 调用 `POST /api/search`，渲染 `progress` 与终态 `result` / `error`；也可按任务 id 调用 `GET /api/search/:id`。
+
+启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/api/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
+
+## Docker 使用
+
+### 本地 Docker 开发
+
+开发覆盖文件让 `agent` 从当前工作树构建，本地镜像标签为 `search-agent:dev`；`websearch` 仍从 `ghcr.io/daidaij/websearch-mcpserver` 拉取。它不修改正式部署使用的基础清单。
 
 ```bash
 # 1. 准备环境变量(必填:自定义网关)
 cp .env.example .env
 #    编辑 .env,填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
 
-# 2. 拉取并启动
-docker compose pull
-docker compose up -d
+# 2. 合并开发覆盖文件，构建本地 agent 并等待两个服务健康
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --wait
 
 # 3. 验证
-curl http://localhost:8787/health
+curl http://localhost:8787/api/health
+```
+
+源码改动后重复第 2 步即可重新构建 `search-agent:dev`。首次构建可能拉取 `node:24-bookworm-slim`；这是 Dockerfile 的基础镜像前置条件，不是拉取 `ghcr.io/cn-asukai/search-agent`。`websearch` 仍会按其远程拉取策略获取镜像。
+
+### 正式 Docker 部署(推荐)
+
+基础 compose 清单只拉取远程镜像并部署：**agent 服务**(HTTP `:8787`，镜像 `ghcr.io/cn-asukai/search-agent`，多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`，镜像 `ghcr.io/daidaij/websearch-mcpserver`)。不叠加 `docker-compose.dev.yml` 时，以下命令始终使用已发布的 GHCR agent 镜像。
+
+```bash
+# 1. 准备环境变量(必填:自定义网关)
+cp .env.example .env
+#    编辑 .env,填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
+
+# 2. 拉取并启动远程发布镜像
+docker compose pull && docker compose up -d
+
+# 3. 验证已发布镜像的健康端点
+curl http://localhost:8787/api/health
 ```
 
 私有 GHCR 包需先登录:`echo $GITHUB_TOKEN | docker login ghcr.io -u <github-user> --password-stdin`。
@@ -60,24 +107,44 @@ curl http://localhost:8787/health
 要点:
 
 - **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
-- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,使用镜像自带配置;`APP_HOST=0.0.0.0` 让 agent 经 compose 内网(`websearch:8338`)访问。不依赖宿主机上跑的 websearch 进程。
-- **数据持久化**:opencode 会话存 `opencode-data` 卷,websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
+- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
+- **数据持久化**:opencode 会话存 `opencode-data` 卷,任务与原始 opencode 链路存 `agent-data` 卷(`SQLITE_PATH=/home/node/data/search-agent.sqlite`),websearch 搜索缓存存 `websearch-cache` 卷;`docker compose down` 不清数据,`down -v` 才清。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-ghcr.yml`)会构建并推送到 GHCR:
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-docker.yml`)会构建 **linux/amd64 + linux/arm64** 清单并同时推送到 GHCR 与 CNB Docker 制品库。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。
 
 ```bash
 git tag v0.1.0
 git push origin v0.1.0
 ```
 
-semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。也可本地构建:
+semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。镜像地址:
+
+- GHCR:`ghcr.io/cn-asukai/search-agent`
+- CNB:`docker.cnb.cool/longlian.online/search-agent`
+
+也可仅为发布而本地构建并推送:
 
 ```bash
 docker build -t ghcr.io/cn-asukai/search-agent:latest .
 docker push ghcr.io/cn-asukai/search-agent:latest
+
+# CNB 制品库(用户名固定 cnb,密码为访问令牌)
+echo "$CNB_TOKEN" | docker login docker.cnb.cool -u cnb --password-stdin
+docker tag ghcr.io/cn-asukai/search-agent:latest docker.cnb.cool/longlian.online/search-agent:latest
+docker push docker.cnb.cool/longlian.online/search-agent:latest
 ```
+
+PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/cicd) 会自动审查 diff(`.github/workflows/ocr-review.yml`);也可在 PR 评论 `/open-code-review` 或 `@open-code-review` 手动重跑。需在仓库 **Settings → Secrets and variables → Actions** 配置:
+
+| 名称 | 类型 | 说明 |
+|---|---|---|
+| `OCR_LLM_URL` | Secret | LLM API 端点(如 `https://api.openai.com/v1/chat/completions`) |
+| `OCR_LLM_AUTH_TOKEN` | Secret | LLM 鉴权 token |
+| `OCR_LLM_MODEL` | Variable | 模型名 |
+| `OCR_LLM_USE_ANTHROPIC` | Variable | Anthropic 填 `true`,OpenAI 兼容填 `false` |
+| `GIT_PASSWORD` | Secret | CNB 访问令牌(用户名固定 `cnb`)。同步代码需仓库读写;推送镜像需制品库写权限 |
 
 ## 接口
 
@@ -101,7 +168,7 @@ curl -s -X POST http://localhost:8787/api/search \
   -d '{"query":"転生したら剣でした","type":"novel"}' | jq
 ```
 
-**SSE 模式**(`stream: true`):依次推送 `task` → 多条 `progress`(工具调用进度)→ `result` / `error`:
+**SSE 模式**(`stream: true`):依次推送 `task` → 多条 `progress`(工具调用进度)→ `result` / `error`,终态事件之后流结束(不再 ping):
 
 ```bash
 curl -N -X POST http://localhost:8787/api/search \
@@ -125,13 +192,15 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ### `GET /api/search/:id`
 
-查询任务状态与结果(任务保存在内存中,服务重启即清空;超过等待上限的同步请求也可用它轮询)。
+查询任务状态与结果(任务保存在 SQLite,服务重启后仍可查;超过等待上限的同步请求也可用它轮询)。原始 opencode 调用链路在库表 `tasks.opencode_trace`,不通过本接口返回。
+
+`Accept: text/event-stream` 或 `?stream=true` 时，对**已有任务**再挂一条 SSE（先推当前快照，再推后续 `progress` / `result` / `error`），刷新页面后续上同一任务，不会新建检索。
 
 ### `GET /api/search`
 
 最近任务列表(id/查询/状态/时间,不含进度与结果明细),便于排查与轮询。
 
-### `GET /health`
+### `GET /api/health`
 
 本服务 + opencode server 健康状态。
 
@@ -140,10 +209,11 @@ curl -N -X POST http://localhost:8787/api/search \
 | 位置 | 作用 |
 |---|---|
 | `opencode.jsonc` | 自定义网关(`provider.custom`)、MCP 搜索服务(`mcp.websearch`)、agent 定义(`agent.hanhua-search`) |
+| `websearch.config.yaml` | websearch-mcpserver 配置(compose 挂载为容器 `/app/config.yaml`;已显式 `baidu.web_enabled: true`) |
 | `prompts/hanhua-search.md` | 检索 agent 的系统提示词(检索策略、判定标准、反编造要求) |
 | `.env`(参考 `.env.example`) | 模型网关、端口、并发/超时、鉴权、WEBSEARCH_TOKEN |
 
-常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 5 分钟)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
+常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 5 分钟)、`SQLITE_PATH`(默认 `./data/search-agent.sqlite`)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
 
 本服务启动时自动 spawn 内嵌 `opencode serve`。检索产生的 session 会保留在本机(`~/.local/share/opencode`),可用于调试回看;不需要时可定期用 opencode CLI 清理。
 
@@ -151,14 +221,17 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ```
 ├── Dockerfile                # 仅构建 agent 镜像(不含 websearch MCP)
-├── docker-compose.yml        # 仅拉取远程镜像并部署
+├── docker-compose.yml        # 正式部署：仅拉取远程镜像
+├── docker-compose.dev.yml    # 本地开发：覆盖 agent 为本地构建镜像
+├── websearch.config.yaml     # websearch MCP 配置(挂到容器 /app/config.yaml)
 ├── opencode.jsonc            # opencode 配置:自定义网关 / MCP / agent
 ├── prompts/hanhua-search.md  # 检索 agent 系统提示词
 ├── src/
 │   ├── index.ts              # 入口:Layer 装配、HttpRouter 路由、SSE、事件桥
 │   ├── env.ts                # 配置(AppConfig)
 │   ├── domain/search.ts      # 领域 Schema
-│   └── services/             # opencode / 事件桥 / 任务表 / 检索编排
+│   └── services/             # sqlite / opencode / 事件桥 / 任务表 / 检索编排
+├── web/                      # Vite + React + shadcn 前端（代理到 :8787）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
 └── .env.example
 ```

@@ -6,8 +6,14 @@ import {
   type OpencodeClient,
 } from "@opencode-ai/sdk/v2"
 import { AppConfig } from "../env.js"
-import { SearchResult, reconcileVerdict, type SearchRequest } from "../domain/search.js"
-import { searchResultJsonSchema } from "../domain/search.js"
+import {
+  SearchResult,
+  searchResultJsonSchema,
+  type OpencodeTraceCallMethod,
+  type OpencodeTraceStep,
+  type SearchRequest,
+} from "../domain/search.js"
+import { TaskManager } from "./taskManager.js"
 
 // ─────────────────────────────────────────────────────────────
 // OpenCode 服务:封装 @opencode-ai/sdk 客户端
@@ -65,12 +71,29 @@ export class OpenCodeOps extends Context.Service<OpenCodeOps, {
   readonly health: Effect.Effect<{ ok: boolean; version?: string }>
 }>()("OpenCodeOps") {}
 
-export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConfig> = Layer.effect(
+export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConfig | TaskManager> = Layer.effect(
   OpenCodeOps
 )(Effect.gen(function* () {
     const opencode = yield* OpenCode
     const config = yield* AppConfig
+    const tasks = yield* TaskManager
     const client = opencode.client
+
+    const recordCall = (
+      sessionId: string,
+      method: OpencodeTraceCallMethod,
+      started: number,
+      request: unknown,
+      extra: Pick<Extract<OpencodeTraceStep, { kind: "call" }>, "response" | "error">,
+    ) =>
+      tasks.appendTraceStep(sessionId, {
+        kind: "call",
+        ts: started,
+        method,
+        durationMs: Date.now() - started,
+        request,
+        ...extra,
+      })
 
     const modelParam = (): { model?: { providerID: string; modelID: string } } => {
       const model = config.opencodeModel
@@ -90,18 +113,25 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
       ),
     )
 
-    const submitSearch = (sessionID: string, request: SearchRequest) =>
-      Effect.tryPromise(() =>
+    const submitSearch = (sessionID: string, request: SearchRequest) => {
+      const started = Date.now()
+      const payload = {
+        sessionID,
+        agent: config.opencodeAgent,
+        ...modelParam(),
+        parts: [
+          {
+            type: "text" as const,
+            text: buildUserMessage(request.query, request.type),
+          },
+        ],
+      }
+      return Effect.tryPromise(() =>
         client.session.promptAsync({
           sessionID,
           agent: config.opencodeAgent,
           ...modelParam(),
-          parts: [
-            {
-              type: "text" as const,
-              text: buildUserMessage(request.query, request.type),
-            },
-          ],
+          parts: payload.parts,
           // 不传 format:json_schema 会强制 toolChoice=required(DeepSeek thinking 400);
           // {type:"text"} 写进 session 后 messages API 反序列化失败(Expected OutputFormatText)。
         }),
@@ -111,10 +141,17 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
             ? Effect.fail(new Error(`opencode prompt 提交失败:${JSON.stringify(res.error)}`))
             : Effect.succeed(void 0),
         ),
+        Effect.tap(() => recordCall(sessionID, "session.promptAsync", started, payload, { response: { ok: true } })),
+        Effect.tapError((err) =>
+          recordCall(sessionID, "session.promptAsync", started, payload, { error: err.message }),
+        ),
       )
+    }
 
-    const getLatestAssistant = (sessionID: string) =>
-      Effect.tryPromise(() => client.session.messages({ sessionID, limit: 10 })).pipe(
+    const getLatestAssistant = (sessionID: string) => {
+      const started = Date.now()
+      const request = { sessionID, limit: 10 }
+      return Effect.tryPromise(() => client.session.messages({ sessionID, limit: 10 })).pipe(
         Effect.flatMap((res) => {
           if (res.error || !res.data) {
             return Effect.fail(new Error(`拉取会话消息失败:${JSON.stringify(res.error)}`))
@@ -128,14 +165,28 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
             parts: assistant.parts ?? [],
           })
         }),
+        Effect.tap((response) => recordCall(sessionID, "session.messages", started, request, { response })),
+        Effect.tapError((err) =>
+          recordCall(sessionID, "session.messages", started, request, { error: err.message }),
+        ),
       )
+    }
 
-    const abortSession = (sessionID: string) =>
-      Effect.tryPromise(() => client.session.abort({ sessionID })).pipe(
+    const abortSession = (sessionID: string) => {
+      const started = Date.now()
+      const request = { sessionID }
+      return Effect.tryPromise(() => client.session.abort({ sessionID })).pipe(
+        Effect.tap((response) => recordCall(sessionID, "session.abort", started, request, { response })),
+        Effect.tapError((err) =>
+          recordCall(sessionID, "session.abort", started, request, {
+            error: err instanceof Error ? err.message : String(err),
+          }),
+        ),
         Effect.mapError((err) => new Error(`中止会话失败:${err instanceof Error ? err.message : String(err)}`)),
         Effect.orDie,
         Effect.ignore,
       )
+    }
 
     const health = Effect.tryPromise(() => client.global.health()).pipe(
       Effect.map((res) =>
