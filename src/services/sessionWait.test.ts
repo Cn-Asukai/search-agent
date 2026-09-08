@@ -32,6 +32,27 @@ function run<A>(effect: Effect.Effect<A, never, Scope.Scope>): Promise<A> {
   return Effect.runPromise(Effect.scoped(effect))
 }
 
+test("settles on completed assistant without a following idle", async () => {
+  await run(
+    Effect.gen(function* () {
+      const events = yield* PubSub.unbounded<OpencodeEvent>()
+      const fiber = yield* waitSessionSettled(events, sessionID, Duration.millis(1500)).pipe(Effect.forkScoped)
+      yield* Effect.sleep(Duration.millis(30))
+      yield* PubSub.publish(events, assistantEvent("msg_1"))
+      yield* PubSub.publish(events, idleEvent())
+      const early = yield* Fiber.join(fiber).pipe(Effect.timeoutOption(Duration.millis(80)))
+      assert.equal(early._tag, "None", "must ignore idle until assistant time.completed")
+      yield* PubSub.publish(
+        events,
+        assistantEvent("msg_1", { time: { created: 1, completed: 2 }, finish: "stop" }),
+      )
+      const result = yield* Fiber.join(fiber)
+      assert.equal(result.ok, true)
+      assert.equal(result.finalInfo && "id" in result.finalInfo ? result.finalInfo.id : undefined, "msg_1")
+    }),
+  )
+})
+
 test("does not settle on the first assistant message", async () => {
   await run(
     Effect.gen(function* () {
@@ -112,7 +133,7 @@ test("captures StructuredOutput tool input as fallback payload", async () => {
       const events = yield* PubSub.unbounded<OpencodeEvent>()
       const fiber = yield* waitSessionSettled(events, sessionID, Duration.millis(1500)).pipe(Effect.forkScoped)
       yield* Effect.sleep(Duration.millis(30))
-      yield* PubSub.publish(events, assistantEvent("msg_1", { time: { created: 1, completed: 2 }, finish: "stop" }))
+      yield* PubSub.publish(events, assistantEvent("msg_1"))
       yield* PubSub.publish(events, {
         type: "message.part.updated",
         properties: {
@@ -127,7 +148,10 @@ test("captures StructuredOutput tool input as fallback payload", async () => {
           },
         },
       })
-      yield* PubSub.publish(events, idleEvent())
+      yield* PubSub.publish(
+        events,
+        assistantEvent("msg_1", { time: { created: 1, completed: 2 }, finish: "stop" }),
+      )
       const result = yield* Fiber.join(fiber)
       assert.equal(result.ok, true)
       assert.deepEqual(result.structuredFromTool, { verdict: "none", summary: "from-tool" })
@@ -135,19 +159,37 @@ test("captures StructuredOutput tool input as fallback payload", async () => {
   )
 })
 
-test("ignores idle from another session", async () => {
+test("ignores idle from another session while the turn is still open", async () => {
   await run(
     Effect.gen(function* () {
       const events = yield* PubSub.unbounded<OpencodeEvent>()
       const fiber = yield* waitSessionSettled(events, sessionID, Duration.millis(1500)).pipe(Effect.forkScoped)
       yield* Effect.sleep(Duration.millis(30))
-      yield* PubSub.publish(events, assistantEvent("msg_1", { time: { created: 1, completed: 2 }, finish: "stop" }))
+      yield* PubSub.publish(events, assistantEvent("msg_1"))
       yield* PubSub.publish(events, idleEvent("ses_other"))
       const early = yield* Fiber.join(fiber).pipe(Effect.timeoutOption(Duration.millis(80)))
       assert.equal(Option.isNone(early), true)
-      yield* PubSub.publish(events, idleEvent())
+      yield* PubSub.publish(
+        events,
+        assistantEvent("msg_1", { time: { created: 1, completed: 2 }, finish: "stop" }),
+      )
       const result = yield* Fiber.join(fiber)
       assert.equal(result.ok, true)
+    }),
+  )
+})
+
+test("times out when session never becomes idle", async () => {
+  await run(
+    Effect.gen(function* () {
+      const events = yield* PubSub.unbounded<OpencodeEvent>()
+      const started = yield* Effect.clockWith((clock) => clock.currentTimeMillis)
+      const result = yield* waitSessionSettled(events, sessionID, Duration.millis(250))
+      const elapsed = (yield* Effect.clockWith((clock) => clock.currentTimeMillis)) - started
+      assert.equal(result.ok, false)
+      assert.match(result.ok ? "" : result.error, /检索超时/)
+      assert.ok(elapsed >= 200, `elapsed ${elapsed}`)
+      assert.ok(elapsed < 2000, `elapsed ${elapsed}`)
     }),
   )
 })

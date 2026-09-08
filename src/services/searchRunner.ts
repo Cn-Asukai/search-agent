@@ -84,17 +84,17 @@ export const SearchRunnerLive: Layer.Layer<
 
         // 订阅该会话的工具调用事件 → 进度
         const stopWatch = yield* watchSession(sessionID, taskId)
-        // 终态订阅与 prompt 同时启动,避免提交后再订而漏掉 idle
-        const { outcome } = yield* Effect.all(
-          {
-            outcome: waitSessionSettled(bridge.events, sessionID, config.taskTimeout),
-            submit: ops.submitSearch(sessionID, {
+        // 终态订阅与 prompt 同时启动,避免提交后再订而漏掉终态。
+        // wait 成功或超时即收尾;submit 失败则立刻失败。不要 Effect.all 等 promptAsync
+        // 一直不返回,否则 wait 超时也无法写回任务。
+        const outcome = yield* waitSessionSettled(bridge.events, sessionID, config.taskTimeout).pipe(
+          Effect.race(
+            ops.submitSearch(sessionID, {
               query: task.query,
               type: task.type,
               stream: false,
-            }),
-          },
-          { concurrency: 2 },
+            }).pipe(Effect.andThen(Effect.never)),
+          ),
         )
         yield* stopWatch()
 
@@ -105,8 +105,8 @@ export const SearchRunnerLive: Layer.Layer<
           parts: outcome.textParts,
         })
 
-        // 事件里没解析出来时再拉一次消息(旧 messages 反序列化失败则忽略)
-        if (!result) {
+        // 超时/失败路径不再拉 messages,避免会话很大时卡住写不回 error
+        if (!result && outcome.ok) {
           const latest = yield* ops.getLatestAssistant(sessionID).pipe(Effect.option)
           if (Option.isSome(latest)) {
             result = resolveSearchResult({
