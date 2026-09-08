@@ -46,6 +46,8 @@ export class AppConfig extends Context.Service<AppConfig, {
   readonly maxConcurrency: number
   readonly syncMaxWait: Duration.Duration
   readonly apiAuthKey: Redacted.Redacted<string> | undefined
+  /** SQLite 文件路径;`:memory:` 仅测试 */
+  readonly sqlitePath: string
 }>()("AppConfig") {}
 
 /** AppConfig 服务的实例类型 */
@@ -71,6 +73,9 @@ export const AppConfigLive: Layer.Layer<AppConfig, Config.ConfigError> = Layer.e
       maxConcurrency: yield* intConfig("MAX_CONCURRENCY", 3),
       syncMaxWait: Duration.millis(syncMaxWaitMs),
       apiAuthKey: toUndefined(apiAuthKey),
+      sqlitePath: yield* Config.string("SQLITE_PATH").pipe(
+        Config.withDefault("./data/search-agent.sqlite"),
+      ),
     }
   }))
 

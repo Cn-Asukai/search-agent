@@ -4,6 +4,7 @@
 # 仅构建本应用;websearch MCP 由 compose 从远程镜像拉取,不在此构建。
 #
 # 构建: docker build -t ghcr.io/cn-asukai/search-agent:latest .
+# 多架构: docker buildx build --platform linux/amd64,linux/arm64 -t ghcr.io/cn-asukai/search-agent:latest --push .
 # 推送: docker push ghcr.io/cn-asukai/search-agent:latest
 #
 # 服务启动时自动 spawn `opencode serve`,因此镜像内同时包含:
@@ -12,7 +13,8 @@
 #   - 项目 opencode.jsonc(模型/MCP/agent)
 
 # ── 构建阶段 ────────────────────────────────────────────────
-# Node 24 官方镜像(bookworm/glibc;opencode 的 linux-x64 二进制为 glibc 静态链接)
+# Node 24 官方镜像(bookworm/glibc)。linux/amd64 与 linux/arm64 均有官方 tag;
+# opencode-ai postinstall 按 TARGETPLATFORM 拉取对应 glibc 二进制。
 FROM node:24-bookworm-slim AS build
 
 WORKDIR /app
@@ -53,8 +55,10 @@ RUN sed -i 's|http://127.0.0.1:8338/mcp|http://websearch:8338/mcp|' opencode.jso
 
 # opencode(Bun 打包)会写 $HOME/.local/{state,share}(会话/缓存/日志),
 # 整个 /home/node 归 node 用户,保证 HOME 下各目录可写
-RUN mkdir -p /home/node/.local/share/opencode \
+RUN mkdir -p /home/node/.local/share/opencode /home/node/data \
     && chown -R node:node /home/node
+
+ENV SQLITE_PATH=/home/node/data/search-agent.sqlite
 
 # 端口 8787 为 HTTP 服务;内嵌 opencode serve 用随机空闲端口(默认),无需暴露
 EXPOSE 8787

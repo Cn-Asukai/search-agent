@@ -1,15 +1,16 @@
 # ════════════════════════════════════════════════════════════════
 # search-agent 容器编排:仅从远程拉取镜像并部署,不在本地构建。
-#   agent     → ghcr.io/cn-asukai/search-agent
-#   websearch → ghcr.io/daidaij/websearch-mcpserver
+#   agent     → ghcr.io/cn-asukai/search-agent          (linux/amd64 + linux/arm64)
+#   websearch → ghcr.io/daidaij/websearch-mcpserver     (暂钉 linux/amd64,上游发 arm64 后去掉 platform)
 #
 # 使用:
 #   1. cp .env.example .env 并填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
 #   2. docker compose pull && docker compose up -d
-#   3. 验证: curl http://localhost:8787/health
+#   3. 验证: curl http://localhost:8787/api/health
 #
 # 数据目录:
 #   - opencode-data:agent 容器的 opencode 会话/缓存(~/.local/share/opencode)
+#   - agent-data:任务 SQLite(含原始 opencode 链路)
 #   - websearch-cache:websearch 搜索缓存
 # ════════════════════════════════════════════════════════════════
 
@@ -41,6 +42,7 @@ services:
       # TASK_TIMEOUT_MS: 300000
       # MAX_CONCURRENCY: 3
       # SYNC_MAX_WAIT_MS: 1800000
+      SQLITE_PATH: /home/node/data/search-agent.sqlite
 
       # ── API 鉴权(可选)────────────────────────────────────────
       # API_AUTH_KEY: ${API_AUTH_KEY:-}
@@ -49,11 +51,13 @@ services:
     volumes:
       # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
       - opencode-data:/home/node/.local/share/opencode
+      # 任务表 + 原始 opencode 链路(tasks.opencode_trace)
+      - agent-data:/home/node/data
     depends_on:
       websearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/health').then(r=>r.status===404?fetch('http://127.0.0.1:8787/api/health'):r).then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:8787/api/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -62,12 +66,13 @@ services:
   # ── 联网搜索 MCP 服务(远程镜像,不在本仓库构建)──────────────
   websearch:
     image: ghcr.io/daidaij/websearch-mcpserver:${WEBSEARCH_IMAGE_TAG:-latest}
+    # 上游镜像暂无 linux/arm64;钉 amd64,由 Docker Desktop / QEMU 模拟。
+    # 上游发布 arm64 清单后删掉本行。
+    platform: linux/amd64
     pull_policy: always
     container_name: search-websearch
     restart: unless-stopped
     environment:
-      # 容器内需跨网络监听,供 agent 经 compose 内网访问
-      APP_HOST: "0.0.0.0"
       TZ: ${TZ:-Asia/Shanghai}
       # 若需开启业务端点鉴权,在 .env 设置 WEBSEARCH_TOKEN,
       # 并同步取消镜像内 opencode.jsonc 中 headers 注释(需重建 agent 镜像)
@@ -76,6 +81,8 @@ services:
       # 仅供本机调试;agent 走 compose 内网 websearch:8338,不依赖此映射
       - "127.0.0.1:${WEBSEARCH_PORT:-8338}:8338"
     volumes:
+      # 覆盖镜像内默认 config.yaml（含 baidu.web_enabled: true）
+      - ./websearch.config.yaml:/app/config.yaml:ro
       - websearch-cache:/app/data
     healthcheck:
       # 远程镜像基于 alpine(busybox),无 curl;以端口探活代替 MCP 握手
@@ -87,4 +94,5 @@ services:
 
 volumes:
   opencode-data:
+  agent-data:
   websearch-cache:

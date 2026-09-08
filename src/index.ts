@@ -1,13 +1,14 @@
-import { Effect, Layer, Duration, Fiber, Stream, Schedule, Option, Schema } from "effect"
+import { Effect, Layer, Duration, Fiber, Stream, Option, Schema } from "effect"
 import { NodeHttpServer } from "@effect/platform-node"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
 import { AppConfig, AppConfigLive, type AppConfigService } from "./env.js"
 import { OpenCode, OpenCodeLive, OpenCodeOps, OpenCodeOpsLive } from "./services/opencode.js"
 import { EventBridge, EventBridgeLive, eventLoop } from "./services/eventBridge.js"
-import { TaskManager, TaskManagerLive, type TaskManagerService } from "./services/taskManager.js"
+import { TaskManager, TaskManagerLive, persistOpencodeTrace, type TaskManagerService } from "./services/taskManager.js"
 import { SearchRunner, SearchRunnerLive } from "./services/searchRunner.js"
-import type { SseClientEvent, TaskEvent } from "./domain/search.js"
+import { SqliteLive } from "./services/sqlite.js"
+import { buildSearchSseStream, encodeSse } from "./services/sseStream.js"
 
 // ─────────────────────────────────────────────────────────────
 // 应用组装:services layers + HttpRouter 路由层 → NodeHttpServer
@@ -17,13 +18,16 @@ import type { SseClientEvent, TaskEvent } from "./domain/search.js"
 // 各 layer 之间的依赖(如 SearchRunnerLive → TaskManager)由 Layer.provide 消化
 // services 层:用 Layer.provide 逐层消化依赖,最终 RIn 为空
 const OpenCodeWithConfig = OpenCodeLive.pipe(Layer.provide(AppConfigLive))
-const TaskManagerWithConfig = TaskManagerLive.pipe(Layer.provide(AppConfigLive))
+const SqliteWithConfig = SqliteLive.pipe(Layer.provide(AppConfigLive))
+const TaskManagerWithDeps = TaskManagerLive.pipe(
+  Layer.provide(Layer.mergeAll(AppConfigLive, SqliteWithConfig)),
+)
 const OpenCodeOpsWithDeps = OpenCodeOpsLive.pipe(
-  Layer.provide(Layer.mergeAll(OpenCodeWithConfig, AppConfigLive)),
+  Layer.provide(Layer.mergeAll(OpenCodeWithConfig, AppConfigLive, TaskManagerWithDeps)),
 )
 const SearchRunnerWithDeps = SearchRunnerLive.pipe(
   Layer.provide(
-    Layer.mergeAll(OpenCodeWithConfig, OpenCodeOpsWithDeps, TaskManagerWithConfig, EventBridgeLive, AppConfigLive),
+    Layer.mergeAll(OpenCodeWithConfig, OpenCodeOpsWithDeps, TaskManagerWithDeps, EventBridgeLive, AppConfigLive),
   ),
 )
 const ServicesLayer = Layer.mergeAll(
@@ -31,7 +35,7 @@ const ServicesLayer = Layer.mergeAll(
   OpenCodeWithConfig,
   OpenCodeOpsWithDeps,
   EventBridgeLive,
-  TaskManagerWithConfig,
+  TaskManagerWithDeps,
   SearchRunnerWithDeps,
 )
 
@@ -45,7 +49,7 @@ const SearchRequestSchema = Schema.Struct({
   stream: Schema.optional(Schema.Boolean),
 })
 
-const healthRoute = HttpRouter.add("GET", "/health", () =>
+const healthRoute = HttpRouter.add("GET", "/api/health", () =>
   Effect.gen(function* () {
     const tasks = yield* TaskManager
     const opencode = yield* OpenCode
@@ -122,10 +126,20 @@ const searchByIdRoute = HttpRouter.add("GET", "/api/search/:id", (req) =>
     if (!id) {
       return HttpServerResponse.jsonUnsafe({ error: "缺少任务 id" }, { status: 400 })
     }
+    if (wantsSse(req)) {
+      const taskOpt = yield* tasks.get(id)
+      if (Option.isNone(taskOpt)) {
+        return HttpServerResponse.jsonUnsafe(
+          { error: "任务不存在" },
+          { status: 404 },
+        )
+      }
+      return yield* sseResponse(id, tasks)
+    }
     const taskOpt = yield* tasks.get(id)
     if (Option.isNone(taskOpt)) {
       return HttpServerResponse.jsonUnsafe(
-        { error: "任务不存在(服务重启后内存任务会被清除)" },
+        { error: "任务不存在" },
         { status: 404 },
       )
     }
@@ -175,37 +189,23 @@ function syncResponse(
   )
 }
 
-/** SSE 模式:task → progress... → result / error;15s 心跳 */
+function wantsSse(req: { readonly headers: { readonly [key: string]: string }; readonly url: string }): boolean {
+  const accept = req.headers["accept"] ?? ""
+  if (accept.includes("text/event-stream")) return true
+  const query = req.url.includes("?") ? req.url.slice(req.url.indexOf("?") + 1) : ""
+  return new URLSearchParams(query).get("stream") === "true"
+}
+
+/** SSE 模式:task → progress... → result / error 后结束;进行中 15s 心跳 */
 function sseResponse(
   taskId: string,
   tasks: TaskManagerService,
 ): Effect.Effect<HttpServerResponse.HttpServerResponse> {
-  const events: Stream.Stream<SseClientEvent> = Stream.fromPubSub(tasks.events).pipe(
-    Stream.filter((ev): ev is TaskEvent => ev.task.id === taskId),
-    Stream.map((ev): SseClientEvent => {
-      switch (ev._tag) {
-        case "progress":
-          return { event: "progress", data: ev.entry }
-        case "done":
-          return { event: "result", data: ev.task }
-        case "error":
-          return { event: "error", data: ev.task }
-      }
-    }),
-  )
-
-  const initial: Stream.Stream<SseClientEvent> = Stream.fromEffect(
-    tasks.get(taskId).pipe(
-      Effect.map((t) => ({ event: "task" as const, data: Option.getOrNull(t) })),
-    ),
-  )
-
-  const heartbeat: Stream.Stream<SseClientEvent> = Stream.fromEffectSchedule(
-    Effect.sync((): SseClientEvent => ({ event: "ping", data: { ts: Date.now() } })),
-    Schedule.spaced("15 seconds"),
-  )
-
-  const all: Stream.Stream<SseClientEvent> = Stream.merge(initial, Stream.merge(events, heartbeat))
+  const all = buildSearchSseStream({
+    taskId,
+    events: tasks.events,
+    getTask: tasks.get,
+  })
 
   return Effect.succeed(
     HttpServerResponse.stream(all.pipe(Stream.map(encodeSse)), {
@@ -217,12 +217,6 @@ function sseResponse(
       },
     }),
   )
-}
-
-function encodeSse(ev: SseClientEvent): Uint8Array {
-  const payload = JSON.stringify(ev.data)
-  const lines = [`event: ${ev.event}`, `data: ${payload}`, "", ""]
-  return new TextEncoder().encode(lines.join("\n"))
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -241,16 +235,19 @@ const program = Effect.gen(function* () {
   const config = yield* AppConfig
   const opencode = yield* OpenCode
   const bridge = yield* EventBridge
+  const tasks = yield* TaskManager
 
   console.log(`[search-agent] opencode: embedded @ ${opencode.url}`)
+  console.log(`[search-agent] sqlite: ${config.sqlitePath}`)
   console.log(
     `[search-agent] 并发上限 ${config.maxConcurrency},单任务超时 ${Duration.toMillis(config.taskTimeout) / 1000}s,` +
       `agent=${config.opencodeAgent}${config.opencodeModel ? `,模型=${config.opencodeModel}` : "(模型取自 opencode.jsonc)"}`,
   )
   console.log(
-    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /health",
+    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | GET /api/health",
   )
 
+  yield* persistOpencodeTrace(bridge.events, tasks).pipe(Effect.forkScoped)
   yield* eventLoop(opencode.client, bridge.events).pipe(Effect.forkScoped)
   yield* Effect.never
 })
