@@ -66,20 +66,39 @@ npm run web:test
 
 启动成功会输出服务地址与内嵌 opencode 地址。`websearch-mcpserver` 未启动也不影响本服务启动,只是检索任务的搜索工具不可用(可在 `/api/health` 里看 opencode 是否健康)。必须从项目根目录启动(`npm run dev` / `npm start`),opencode 才能加载 `opencode.jsonc` 与 `prompts/`。
 
-## Docker 部署(推荐)
+## Docker 使用
 
-compose **只拉取远程镜像并部署**,不在本地构建。两个容器:**agent 服务**(HTTP `:8787`,镜像 `ghcr.io/cn-asukai/search-agent`,多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`,镜像 `ghcr.io/daidaij/websearch-mcpserver`)。
+### 本地 Docker 开发
+
+开发覆盖文件让 `agent` 从当前工作树构建，本地镜像标签为 `search-agent:dev`；`websearch` 仍从 `ghcr.io/daidaij/websearch-mcpserver` 拉取。它不修改正式部署使用的基础清单。
 
 ```bash
 # 1. 准备环境变量(必填:自定义网关)
 cp .env.example .env
 #    编辑 .env,填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
 
-# 2. 拉取并启动
-docker compose pull
-docker compose up -d
+# 2. 合并开发覆盖文件，构建本地 agent 并等待两个服务健康
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --wait
 
 # 3. 验证
+curl http://localhost:8787/api/health
+```
+
+源码改动后重复第 2 步即可重新构建 `search-agent:dev`。首次构建可能拉取 `node:24-bookworm-slim`；这是 Dockerfile 的基础镜像前置条件，不是拉取 `ghcr.io/cn-asukai/search-agent`。`websearch` 仍会按其远程拉取策略获取镜像。
+
+### 正式 Docker 部署(推荐)
+
+基础 compose 清单只拉取远程镜像并部署：**agent 服务**(HTTP `:8787`，镜像 `ghcr.io/cn-asukai/search-agent`，多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`，镜像 `ghcr.io/daidaij/websearch-mcpserver`)。不叠加 `docker-compose.dev.yml` 时，以下命令始终使用已发布的 GHCR agent 镜像。
+
+```bash
+# 1. 准备环境变量(必填:自定义网关)
+cp .env.example .env
+#    编辑 .env,填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
+
+# 2. 拉取并启动远程发布镜像
+docker compose pull && docker compose up -d
+
+# 3. 验证已发布镜像的健康端点
 curl http://localhost:8787/api/health
 ```
 
@@ -105,7 +124,7 @@ semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `la
 - GHCR:`ghcr.io/cn-asukai/search-agent`
 - CNB:`docker.cnb.cool/longlian.online/search-agent`
 
-也可本地构建:
+也可仅为发布而本地构建并推送:
 
 ```bash
 docker build -t ghcr.io/cn-asukai/search-agent:latest .
@@ -202,7 +221,8 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ```
 ├── Dockerfile                # 仅构建 agent 镜像(不含 websearch MCP)
-├── docker-compose.yml        # 仅拉取远程镜像并部署
+├── docker-compose.yml        # 正式部署：仅拉取远程镜像
+├── docker-compose.dev.yml    # 本地开发：覆盖 agent 为本地构建镜像
 ├── websearch.config.yaml     # websearch MCP 配置(挂到容器 /app/config.yaml)
 ├── opencode.jsonc            # opencode 配置:自定义网关 / MCP / agent
 ├── prompts/hanhua-search.md  # 检索 agent 系统提示词
