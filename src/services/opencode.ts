@@ -8,6 +8,7 @@ import {
 import { AppConfig } from "../env.js"
 import {
   SearchResult,
+  reconcileVerdict,
   searchResultJsonSchema,
   type OpencodeTraceCallMethod,
   type OpencodeTraceStep,
@@ -290,20 +291,24 @@ export function parseFromTextParts(parts: readonly unknown[]): SearchResult | nu
     .join("\n")
   if (!text.trim()) return null
 
-  const fenced = /```(?:json)?\s*([\s\S]*?)```/i.exec(text)
+  // 围栏内容必须以 `{` 开头,避免用户提示词里的「可放在 ```json 代码块中」抢到第一个匹配。
   const candidates: string[] = []
-  if (fenced?.[1]) candidates.push(fenced[1])
+  for (const match of text.matchAll(/```(?:json)?\s*(\{[\s\S]*?)\s*```/gi)) {
+    if (match[1]) candidates.push(match[1])
+  }
   const first = text.indexOf("{")
   const last = text.lastIndexOf("}")
   if (first >= 0 && last > first) candidates.push(text.slice(first, last + 1))
 
-  for (const candidate of candidates) {
+  for (const candidate of candidates.reverse()) {
+    let value: unknown
     try {
-      const parsed = parseStructuredResult(JSON.parse(candidate))
-      if (parsed) return parsed
+      value = JSON.parse(candidate)
     } catch {
-      // 尝试下一个候选
+      continue
     }
+    const parsed = parseStructuredResult(value)
+    if (parsed) return parsed
   }
   return null
 }

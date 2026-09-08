@@ -46,6 +46,20 @@ test("parses fenced JSON from text parts", () => {
   assert.equal(parsed.summary, valid.summary)
 })
 
+test("skips the prompt's ```json mention and parses the later result fence", () => {
+  const prompt = [
+    "最后一条回复必须是一个 JSON 对象(可放在 ```json 代码块中),不要在 JSON 之外写结论。",
+    "JSON 必须符合下列 Schema:",
+    JSON.stringify({ type: "object", required: ["verdict"] }),
+  ].join("\n")
+  const parsed = parseFromTextParts([
+    { type: "text", text: prompt },
+    { type: "text", text: "检索完成。\n```json\n" + JSON.stringify(valid) + "\n```\n" },
+  ])
+  assert.ok(parsed, "user-prompt ```json must not steal the result fence")
+  assert.equal(parsed.summary, valid.summary)
+})
+
 test("resolveSearchResult prefers message.structured then tool then text", () => {
   const info = { structured: valid } as AssistantMessage
   const fromInfo = resolveSearchResult({ info })
