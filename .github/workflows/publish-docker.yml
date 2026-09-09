@@ -73,6 +73,9 @@ jobs:
         with:
           context: .
           file: ./Dockerfile
+          build-args: |
+            GIT_REVISION=${{ github.sha }}
+            GIT_VERSION=${{ github.ref_name }}
           push: true
           # npm / opencode-ai postinstall 按 TARGETPLATFORM 装对应二进制
           platforms: linux/amd64,linux/arm64

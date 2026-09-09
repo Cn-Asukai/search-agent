@@ -112,28 +112,31 @@ curl http://localhost:8787/api/health
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
 
-本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。发布新版本时推送 tag,GitHub Actions(`.github/workflows/publish-docker.yml`)会构建 **linux/amd64 + linux/arm64** 清单并同时推送到 GHCR 与 CNB Docker 制品库。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。
+本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。发版见下方「发布」。
+
+## 发布
+
+之后发版只走 **`npm version`**,不要单独 `git tag`。在要发版的分支(一般是 `main`)、工作区干净时:
 
 ```bash
-git tag v0.1.0
-git push origin v0.1.0
+npm version patch -m "chore: release %s"   # 或 minor / major / 绝对版本如 0.2.5
+git push origin HEAD --follow-tags
 ```
 
-semver tag(如 `v0.1.0`)会打 `0.1.0` / `0.1` / `v0.1.0`;非预发布再打 `latest`。镜像地址:
+`npm version` 会改根目录 `package.json` 与 lock、提交,并打 `vX.Y.Z`。`--follow-tags` 把提交和 tag 一起推上去后,[`publish-docker.yml`](.github/workflows/publish-docker.yml) 构建 **linux/amd64 + linux/arm64** 并推到 GHCR 与 CNB。本包 `"private": true`,不要 `npm publish`。
+
+`patch` / `minor` / `major` 相对的是 **当前 `package.json` 的 version**。若它落后于已有 git tag,第一次对齐用绝对版本(例如现为 `0.1.0`、tag 已到 `v0.2.4` 时用 `npm version 0.2.5`)。
+
+`/api/health` 的 `version` 来自该 tag(镜像构建注入 `GIT_VERSION`);本地 `npm run dev` 用 `git describe --tags --always --dirty`。`revision` 是完整 commit SHA。`v0.2.5` 会打镜像 `0.2.5` / `0.2` / `v0.2.5`;不含 `-` 的非预发布再打 `latest`。
 
 - GHCR:`ghcr.io/cn-asukai/search-agent`
 - CNB:`docker.cnb.cool/longlian.online/search-agent`
 
-也可仅为发布而本地构建并推送:
+本地 Compose 开发镜像内没有 `.git`,构建时自行传入:
 
 ```bash
-docker build -t ghcr.io/cn-asukai/search-agent:latest .
-docker push ghcr.io/cn-asukai/search-agent:latest
-
-# CNB 制品库(用户名固定 cnb,密码为访问令牌)
-echo "$CNB_TOKEN" | docker login docker.cnb.cool -u cnb --password-stdin
-docker tag ghcr.io/cn-asukai/search-agent:latest docker.cnb.cool/longlian.online/search-agent:latest
-docker push docker.cnb.cool/longlian.online/search-agent:latest
+GIT_VERSION=$(git describe --tags --always --dirty) GIT_REVISION=$(git rev-parse HEAD) \
+  docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 ```
 
 PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/cicd) 会自动审查 diff(`.github/workflows/ocr-review.yml`);也可在 PR 评论 `/open-code-review` 或 `@open-code-review` 手动重跑。需在仓库 **Settings → Secrets and variables → Actions** 配置:
@@ -202,7 +205,7 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ### `GET /api/health`
 
-本服务 + opencode server 健康状态。
+本服务 + opencode server 健康状态。`version` 是 `npm version` 打出的 git tag(镜像里的 `GIT_VERSION`,本地则 `git describe`);`revision` 是构建时的 commit SHA。
 
 ## 配置一览
 

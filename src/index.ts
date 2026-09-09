@@ -9,6 +9,9 @@ import { TaskManager, TaskManagerLive, persistOpencodeTrace, type TaskManagerSer
 import { SearchRunner, SearchRunnerLive } from "./services/searchRunner.js"
 import { SqliteLive } from "./services/sqlite.js"
 import { buildSearchSseStream, encodeSse } from "./services/sseStream.js"
+import { readRevision, resolveAppVersion } from "./services/appVersion.js"
+
+const APP_VERSION = resolveAppVersion(process.env.GIT_VERSION)
 
 // ─────────────────────────────────────────────────────────────
 // 应用组装:services layers + HttpRouter 路由层 → NodeHttpServer
@@ -60,6 +63,8 @@ const healthRoute = HttpRouter.add("GET", "/api/health", () =>
     return HttpServerResponse.jsonUnsafe({
       status: health.ok ? "ok" : "degraded",
       service: "search-agent",
+      version: APP_VERSION,
+      revision: readRevision(process.env.GIT_REVISION),
       opencode: {
         url: opencode.url,
         healthy: health.ok,
