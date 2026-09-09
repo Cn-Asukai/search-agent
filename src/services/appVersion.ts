@@ -1,27 +1,30 @@
-import { readFileSync } from "node:fs"
+import { execFileSync } from "node:child_process"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 
-export function readAppVersion(packageJsonText: string): string {
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "../..")
+
+function describeGitTag(): string | null {
   try {
-    const parsed: unknown = JSON.parse(packageJsonText)
-    if (parsed !== null && typeof parsed === "object" && "version" in parsed) {
-      const version = parsed.version
-      if (typeof version === "string") {
-        const trimmed = version.trim()
-        if (trimmed !== "") return trimmed
-      }
-    }
+    const out = execFileSync("git", ["describe", "--tags", "--always", "--dirty"], {
+      cwd: repoRoot,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+      timeout: 2000,
+    }).trim()
+    return out || null
   } catch {
-    // invalid JSON → unknown
+    return null
   }
-  return "unknown"
 }
 
-export function loadAppVersion(packageJsonPath: string): string {
-  try {
-    return readAppVersion(readFileSync(packageJsonPath, "utf8"))
-  } catch {
-    return "unknown"
-  }
+export function resolveAppVersion(
+  envValue: string | undefined,
+  describe: () => string | null = describeGitTag,
+): string {
+  const trimmed = envValue?.trim()
+  if (trimmed) return trimmed
+  return describe() ?? "unknown"
 }
 
 export function readRevision(envValue: string | undefined): string | null {

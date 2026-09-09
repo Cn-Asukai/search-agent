@@ -1,7 +1,13 @@
 # 本地 Docker 开发覆盖层：仅 agent 使用当前工作树构建；websearch 仍沿用基础清单的远程镜像。
+# 构建时传入当前 git 身份（镜像内没有 .git）：
+#   GIT_VERSION=$(git describe --tags --always --dirty) GIT_REVISION=$(git rev-parse HEAD) \
+#     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 services:
   agent:
     image: search-agent:dev
     build:
       context: .
+      args:
+        GIT_REVISION: ${GIT_REVISION:-}
+        GIT_VERSION: ${GIT_VERSION:-}
     pull_policy: build

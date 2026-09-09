@@ -1,24 +1,30 @@
 import assert from "node:assert/strict"
-import { dirname, join } from "node:path"
 import { test } from "node:test"
-import { fileURLToPath } from "node:url"
-import { loadAppVersion, readAppVersion, readRevision } from "./appVersion.js"
+import { readRevision, resolveAppVersion } from "./appVersion.js"
 
-test("readAppVersion returns the package version string", () => {
-  assert.equal(readAppVersion('{"version":"0.1.0"}'), "0.1.0")
+test("resolveAppVersion prefers GIT_VERSION env over git describe", () => {
+  assert.equal(resolveAppVersion("v0.2.4", () => "v0.1.0"), "v0.2.4")
 })
 
-test("readAppVersion returns unknown when version is missing or invalid", () => {
-  assert.equal(readAppVersion("{}"), "unknown")
-  assert.equal(readAppVersion('{"version":""}'), "unknown")
-  assert.equal(readAppVersion('{"version":1}'), "unknown")
-  assert.equal(readAppVersion("{"), "unknown")
-  assert.equal(readAppVersion(""), "unknown")
+test("resolveAppVersion trims GIT_VERSION", () => {
+  assert.equal(resolveAppVersion("  v0.2.4\n", () => "nope"), "v0.2.4")
 })
 
-test("loadAppVersion returns unknown for a missing file", () => {
-  const missing = join(dirname(fileURLToPath(import.meta.url)), "__missing_package.json__")
-  assert.equal(loadAppVersion(missing), "unknown")
+test("resolveAppVersion treats blank env as missing and uses git describe", () => {
+  assert.equal(resolveAppVersion(undefined, () => "v0.2.4-1-g87b5548"), "v0.2.4-1-g87b5548")
+  assert.equal(resolveAppVersion("", () => "v0.2.4"), "v0.2.4")
+  assert.equal(resolveAppVersion("   ", () => "v0.2.4"), "v0.2.4")
+})
+
+test("resolveAppVersion returns unknown when env and git are missing", () => {
+  assert.equal(resolveAppVersion(undefined, () => null), "unknown")
+  assert.equal(resolveAppVersion("", () => null), "unknown")
+})
+
+test("resolveAppVersion reads a git tag from this repository", () => {
+  const version = resolveAppVersion(undefined)
+  assert.notEqual(version, "unknown")
+  assert.match(version, /^v?\d+\.\d+/)
 })
 
 test("readRevision treats missing and blank env as null", () => {
