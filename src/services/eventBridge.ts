@@ -132,7 +132,8 @@ export async function runNativeLoop(
       const subscription = await client.event.subscribe()
       for await (const event of subscription.stream) {
         if (signal?.aborted) return
-        Effect.runFork(PubSub.publish(events, event as OpencodeEvent))
+        // 必须等 publish 完成再读下一条,否则终态 message.updated 与 session.idle 可能乱序
+        await Effect.runPromise(PubSub.publish(events, event as OpencodeEvent))
       }
       console.warn(`[event-bridge] 事件流结束,5s 后重连`)
     } catch (err) {

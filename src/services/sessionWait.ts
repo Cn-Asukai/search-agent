@@ -6,8 +6,9 @@ import { describeMessageError } from "./opencode.js"
 // ─────────────────────────────────────────────────────────────
 // 等待一次检索会话真正结束。
 // opencode 在 LLM 开始前就会发出第一条 assistant 的 message.updated,
-// structured 要等循环里调用 StructuredOutput 工具之后才写上。
-// 因此必须等到 session.idle(或 assistant 带 error),不能在首条 assistant 上返回。
+// 工具回合之间也可能 session.idle,所以不能在「首条 assistant / 未完成回合的 idle」上返回。
+// 助手回合一旦结束(finish=stop 且 time.completed,或 structured,或 error),
+// 不必再等下一条 idle:生产里往往只 idle 一次,且可能和 message.updated 乱序。
 // ─────────────────────────────────────────────────────────────
 
 export type SessionWaitResult =
@@ -45,9 +46,7 @@ export function waitSessionSettled(
       Stream.filter((e) => e.properties?.sessionID === sessionID),
       Stream.map((event) => {
         ingest(event)
-        const errored = Boolean(latest?.error)
-        const idle = event.type === "session.idle" && assistantTurnDone(latest)
-        return errored || idle
+        return Boolean(latest?.error) || assistantTurnDone(latest)
       }),
       Stream.takeUntil((done) => done),
       Stream.runDrain,
