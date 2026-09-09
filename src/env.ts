@@ -25,13 +25,13 @@ for (const key of ["NO_PROXY", "no_proxy"] as const) {
 
 const intConfig = (name: string, fallback: number): Config.Config<number> =>
   Config.number(name).pipe(
-    Config.withDefault(fallback),
+    Config.orElse(() => Config.succeed(fallback)),
     Config.map((n) => (Number.isFinite(n) && n > 0 ? n : fallback)),
   )
 
 const intOrZeroConfig = (name: string, fallback: number): Config.Config<number> =>
   Config.number(name).pipe(
-    Config.withDefault(fallback),
+    Config.orElse(() => Config.succeed(fallback)),
     Config.map((n) => (Number.isFinite(n) && n >= 0 ? n : fallback)),
   )
 

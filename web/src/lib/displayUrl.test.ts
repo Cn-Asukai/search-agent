@@ -34,4 +34,11 @@ describe("decodeUrlsInText", () => {
       "读取网页完成:https://example.com/a b",
     )
   })
+
+  it("decodes nested percent-encoding and keeps trailing punctuation", () => {
+    const doubleEncoded = encodeURIComponent("https://example.com/转生")
+    expect(decodeUrlForDisplay(doubleEncoded)).toBe("https://example.com/转生")
+    expect(decodeUrlsInText("见 https://example.com/a%20b。")).toBe("见 https://example.com/a b。")
+    expect(decodeUrlsInText("见 https://example.com/a%20b,")).toBe("见 https://example.com/a b,")
+  })
 })
