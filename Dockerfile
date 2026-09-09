@@ -38,6 +38,8 @@ RUN npm install -g opencode-ai@${OPENCODE_VERSION} \
 
 WORKDIR /app
 ENV NODE_ENV=production
+ARG GIT_REVISION=
+ENV GIT_REVISION=${GIT_REVISION}
 
 # 应用代码 + 编译产物(tsx 直接跑 TS 源码)
 # package.json 必需:其 "type": "module" 决定 .ts 按 ESM 解析(sdk 的 exports 只有 import 条件)

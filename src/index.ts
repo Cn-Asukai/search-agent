@@ -2,6 +2,8 @@ import { Effect, Layer, Duration, Fiber, Stream, Option, Schema } from "effect"
 import { NodeHttpServer } from "@effect/platform-node"
 import { HttpRouter, HttpServerResponse } from "effect/unstable/http"
 import { createServer } from "node:http"
+import { dirname, join } from "node:path"
+import { fileURLToPath } from "node:url"
 import { AppConfig, AppConfigLive, type AppConfigService } from "./env.js"
 import { OpenCode, OpenCodeLive, OpenCodeOps, OpenCodeOpsLive } from "./services/opencode.js"
 import { EventBridge, EventBridgeLive, eventLoop } from "./services/eventBridge.js"
@@ -9,6 +11,9 @@ import { TaskManager, TaskManagerLive, persistOpencodeTrace, type TaskManagerSer
 import { SearchRunner, SearchRunnerLive } from "./services/searchRunner.js"
 import { SqliteLive } from "./services/sqlite.js"
 import { buildSearchSseStream, encodeSse } from "./services/sseStream.js"
+import { loadAppVersion, readRevision } from "./services/appVersion.js"
+
+const APP_VERSION = loadAppVersion(join(dirname(fileURLToPath(import.meta.url)), "../package.json"))
 
 // ─────────────────────────────────────────────────────────────
 // 应用组装:services layers + HttpRouter 路由层 → NodeHttpServer
@@ -60,6 +65,8 @@ const healthRoute = HttpRouter.add("GET", "/api/health", () =>
     return HttpServerResponse.jsonUnsafe({
       status: health.ok ? "ok" : "degraded",
       service: "search-agent",
+      version: APP_VERSION,
+      revision: readRevision(process.env.GIT_REVISION),
       opencode: {
         url: opencode.url,
         healthy: health.ok,

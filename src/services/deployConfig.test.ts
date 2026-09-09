@@ -64,3 +64,14 @@ test("hanhua agent does not allow webfetch as a search stand-in", () => {
   assert.ok(permission, "opencode.jsonc must declare webfetch permission")
   assert.notEqual(permission[1], "allow")
 })
+
+test("runtime Dockerfile injects GIT_REVISION", () => {
+  const dockerfile = uncommentedLines(readRepo("Dockerfile")).join("\n")
+  assert.match(dockerfile, /ARG GIT_REVISION/)
+  assert.match(dockerfile, /ENV GIT_REVISION/)
+})
+
+test("publish workflow passes github.sha as GIT_REVISION", () => {
+  const workflow = readRepo(".github/workflows/publish-docker.yml")
+  assert.match(workflow, /GIT_REVISION=\$\{\{\s*github\.sha\s*\}\}/)
+})
