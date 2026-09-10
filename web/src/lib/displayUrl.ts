@@ -23,3 +23,18 @@ export function decodeUrlsInText(text: string): string {
     return decodeUrlForDisplay(core) + (trailing?.[0] ?? "")
   })
 }
+
+/**
+ * True only for absolute http(s) URLs. Rejects javascript:, data:,
+ * protocol-relative, and anything URL() cannot parse as http/https.
+ */
+export function isHttpUrl(value: string): boolean {
+  const trimmed = value.trim()
+  if (!trimmed || trimmed.startsWith("//")) return false
+  try {
+    const parsed = new URL(trimmed)
+    return parsed.protocol === "http:" || parsed.protocol === "https:"
+  } catch {
+    return false
+  }
+}

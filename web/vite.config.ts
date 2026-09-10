@@ -7,7 +7,12 @@ import { defineConfig } from "vitest/config"
 const rootDir = fileURLToPath(new URL(".", import.meta.url))
 
 const apiProxy = {
-  "/api": { target: "http://127.0.0.1:8787", changeOrigin: true },
+  "/api": {
+    target: "http://127.0.0.1:8787",
+    changeOrigin: true,
+    timeout: 3_600_000,
+    proxyTimeout: 3_600_000,
+  },
 }
 
 export default defineConfig({
@@ -27,6 +32,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 })

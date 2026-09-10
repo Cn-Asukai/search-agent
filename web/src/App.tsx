@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from "react"
+import { useCallback, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react"
 import { BookOpen, CircleHelp, Languages, Loader2, Search } from "lucide-react"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Badge } from "@/components/ui/badge"
@@ -21,9 +21,10 @@ import {
   replaceTaskIdInUrl,
   writeActiveTaskId,
 } from "@/lib/activeTask"
-import { decodeUrlForDisplay, decodeUrlsInText } from "@/lib/displayUrl"
+import { decodeUrlForDisplay, decodeUrlsInText, isHttpUrl } from "@/lib/displayUrl"
 import {
   createSearchClient,
+  errorViewFromUnknown,
   mapTaskToView,
   sourceKindLabels,
   verdictLabels,
@@ -50,10 +51,12 @@ export default function App() {
   const [progress, setProgress] = useState<ProgressEntry[]>([])
   const [view, setView] = useState<MappedSearchView | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [reconnectHint, setReconnectHint] = useState<string | null>(null)
   const [health, setHealth] = useState<HealthInfo | null>(null)
   const [healthError, setHealthError] = useState<string | null>(null)
   const [recent, setRecent] = useState<TaskSummary[]>([])
   const abortRef = useRef<AbortController | null>(null)
+  const runRef = useRef(0)
   const didResume = useRef(false)
 
   const refreshHealth = useCallback(async () => {
@@ -85,67 +88,81 @@ export default function App() {
     return () => window.clearInterval(timer)
   }, [refreshHealth, refreshRecent])
 
-  useEffect(() => {
-    if (didResume.current) return
-    const id = readTaskIdFromSearch(window.location.search) ?? readActiveTaskId()
-    if (!id) return
-    didResume.current = true
-    void followTask(id, "attach")
-  }, [])
-
-  function nextSignal(): AbortSignal {
+  function beginRun(): { controller: AbortController; token: number } {
     abortRef.current?.abort()
     const controller = new AbortController()
     abortRef.current = controller
-    return controller.signal
+    const token = ++runRef.current
+    return { controller, token }
   }
 
-  function streamHandlers(): SearchStreamHandlers {
+  function isLive(token: number, controller: AbortController): boolean {
+    return runRef.current === token && abortRef.current === controller
+  }
+
+  function streamHandlers(token: number, controller: AbortController): SearchStreamHandlers {
+    const live = () => isLive(token, controller)
     return {
-      signal: nextSignal(),
+      signal: controller.signal,
       onTask(task: Task) {
+        if (!live()) return
         writeActiveTaskId(task.id)
         replaceTaskIdInUrl(task.id)
         setQuery(task.query)
         setType(task.type)
         if (task.progress.length) setProgress(task.progress)
       },
-      onProgress: (entry) =>
+      onProgress: (entry) => {
+        if (!live()) return
+        setReconnectHint(null)
         setProgress((prev) => {
           if (prev.some((item) => item.seq === entry.seq && item.message === entry.message)) return prev
           return [...prev, entry]
-        }),
+        })
+      },
       onResult: (next) => {
+        if (!live()) return
+        setReconnectHint(null)
         clearActiveTaskId()
-        replaceTaskIdInUrl(null)
+        replaceTaskIdInUrl(next.taskId)
         setView(next)
       },
       onError: (next) => {
+        if (!live()) return
+        setReconnectHint(null)
         clearActiveTaskId()
-        replaceTaskIdInUrl(null)
+        replaceTaskIdInUrl(next.taskId)
         setView(next)
+      },
+      onDisconnect: () => {
+        if (!live()) return
+        setReconnectHint("连接中断、正在续上")
       },
     }
   }
 
   async function followTask(id: string, mode: "attach" | "open") {
+    const { controller, token } = beginRun()
     setFormError(null)
+    setReconnectHint(null)
     setRunning(true)
     setView(null)
     try {
       if (mode === "open") {
-        const snapshot = await client.getTask(id)
+        const snapshot = await client.getTask(id, controller.signal)
+        if (!isLive(token, controller)) return
         setQuery(snapshot.query)
         setType(snapshot.type)
         setProgress(snapshot.progress ?? [])
         if (snapshot.status !== "queued" && snapshot.status !== "running") {
           setView(mapTaskToView(snapshot))
           clearActiveTaskId()
-          replaceTaskIdInUrl(null)
+          replaceTaskIdInUrl(snapshot.id)
           return
         }
       }
-      const session = await client.attachStream(id, streamHandlers())
+      const session = await client.attachStream(id, streamHandlers(token, controller))
+      if (!isLive(token, controller)) return
       if (session.task) {
         setQuery(session.task.query)
         setType(session.task.type)
@@ -153,19 +170,15 @@ export default function App() {
       if (session.progress.length) setProgress(session.progress)
       if (session.view) setView(session.view)
     } catch (err) {
+      if (!isLive(token, controller)) return
       if (isAbortError(err)) return
       clearActiveTaskId()
-      replaceTaskIdInUrl(null)
-      setView({
-        kind: "error",
-        taskId: id,
-        query,
-        type,
-        status: "error",
-        error: err instanceof Error ? err.message : String(err),
-      })
+      replaceTaskIdInUrl(id)
+      setView(errorViewFromUnknown(err, { taskId: id, query, type }))
     } finally {
+      if (!isLive(token, controller)) return
       setRunning(false)
+      setReconnectHint(null)
       void refreshRecent()
       void refreshHealth()
     }
@@ -178,32 +191,39 @@ export default function App() {
       setFormError("请输入作品名")
       return
     }
+    const { controller, token } = beginRun()
     setFormError(null)
+    setReconnectHint(null)
     setRunning(true)
     setProgress([])
     setView(null)
     try {
-      const session = await client.searchStream({ query: trimmed, type }, streamHandlers())
+      const session = await client.searchStream({ query: trimmed, type }, streamHandlers(token, controller))
+      if (!isLive(token, controller)) return
       if (session.view) setView(session.view)
       else if (session.progress.length) setProgress(session.progress)
     } catch (err) {
+      if (!isLive(token, controller)) return
       if (isAbortError(err)) return
       clearActiveTaskId()
       replaceTaskIdInUrl(null)
-      setView({
-        kind: "error",
-        taskId: "",
-        query: trimmed,
-        type,
-        status: "error",
-        error: err instanceof Error ? err.message : String(err),
-      })
+      setView(errorViewFromUnknown(err, { taskId: "", query: trimmed, type }))
     } finally {
+      if (!isLive(token, controller)) return
       setRunning(false)
+      setReconnectHint(null)
       void refreshRecent()
       void refreshHealth()
     }
   }
+
+  useEffect(() => {
+    if (didResume.current) return
+    const id = readTaskIdFromSearch(window.location.search) ?? readActiveTaskId()
+    if (!id) return
+    didResume.current = true
+    void followTask(id, "open")
+  }, [])
 
   async function openRecent(id: string) {
     await followTask(id, "open")
@@ -273,7 +293,7 @@ export default function App() {
                   <Label>类型</Label>
                   <div
                     data-testid="type-select"
-                    role="group"
+                    role="radiogroup"
                     aria-label="作品类型"
                     className="flex flex-wrap gap-2"
                   >
@@ -281,6 +301,8 @@ export default function App() {
                       <Button
                         key={option}
                         type="button"
+                        role="radio"
+                        aria-checked={type === option}
                         data-testid={`type-${option}`}
                         variant={type === option ? "default" : "outline"}
                         onClick={() => setType(option)}
@@ -317,8 +339,8 @@ export default function App() {
             </CardContent>
           </Card>
 
-          {running || progress.length > 0 ? (
-            <ProgressPanel running={running} progress={progress} />
+          {running || progress.length > 0 || reconnectHint ? (
+            <ProgressPanel running={running} progress={progress} reconnectHint={reconnectHint} />
           ) : null}
 
           <Outcome view={view} />
@@ -360,7 +382,8 @@ export default function App() {
                       <li key={task.id}>
                         <button
                           type="button"
-                          className="w-full rounded-lg border px-3 py-2 text-left text-sm hover:bg-muted"
+                          className="w-full rounded-lg border px-3 py-2 text-left text-sm hover:bg-muted disabled:pointer-events-none disabled:opacity-50"
+                          disabled={running}
                           onClick={() => void openRecent(task.id)}
                         >
                           <div className="flex items-center justify-between gap-2">
@@ -387,11 +410,14 @@ export default function App() {
 function ProgressPanel({
   running,
   progress,
+  reconnectHint,
 }: {
   running: boolean
   progress: ProgressEntry[]
+  reconnectHint: string | null
 }) {
   const endRef = useRef<HTMLLIElement>(null)
+  const latest = progress.at(-1)
 
   useEffect(() => {
     const el = endRef.current
@@ -412,6 +438,14 @@ function ProgressPanel({
         <CardDescription>工具调用与阶段状态会在检索过程中实时出现。</CardDescription>
       </CardHeader>
       <CardContent>
+        <div className="sr-only" aria-live="polite" aria-atomic="true">
+          {reconnectHint ?? (latest ? decodeUrlsInText(latest.message) : running ? "已提交，等待服务推送进度" : "")}
+        </div>
+        {reconnectHint ? (
+          <p data-testid="reconnect-hint" className="mb-3 text-sm text-muted-foreground" role="status">
+            {reconnectHint}
+          </p>
+        ) : null}
         {progress.length === 0 ? (
           <p className="text-sm text-muted-foreground">已提交，等待服务推送进度…</p>
         ) : (
@@ -468,6 +502,22 @@ function statusLabel(status: TaskSummary["status"]): string {
   }
 }
 
+function SourceHref({ href, children }: { href: string; children: ReactNode }) {
+  if (!isHttpUrl(href)) {
+    return <span className="break-all">{children}</span>
+  }
+  return (
+    <a
+      className="text-primary break-all underline-offset-4 hover:underline"
+      href={href}
+      target="_blank"
+      rel="noreferrer"
+    >
+      {children}
+    </a>
+  )
+}
+
 function Outcome({ view }: { view: MappedSearchView | null }) {
   if (!view) {
     return (
@@ -487,7 +537,7 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
   if (view.kind === "error") {
     return (
       <Alert variant="destructive" data-testid="search-error">
-        <AlertTitle>检索失败</AlertTitle>
+        <AlertTitle>{view.errorTitle ?? "检索失败"}</AlertTitle>
         <AlertDescription>{view.error ?? "未知错误"}</AlertDescription>
       </Alert>
     )
@@ -533,20 +583,17 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
             <h3 className="mb-2 text-sm font-medium">民间汉化</h3>
             {view.fan?.exists && view.fan.translations.length > 0 ? (
               <ul className="space-y-2 text-sm">
-                {view.fan.translations.map((item) => (
-                  <li key={`${item.source_url}-${item.group ?? ""}`}>
+                {view.fan.translations.map((item, index) => (
+                  <li key={`${item.group ?? ""}-${item.status}-${item.source_url ?? index}`}>
                     <span>{item.group ?? "未具名汉化组"}</span>
                     <span className="text-muted-foreground"> · {item.status}</span>
-                    <div>
-                      <a
-                        className="text-primary break-all underline-offset-4 hover:underline"
-                        href={item.source_url}
-                        target="_blank"
-                        rel="noreferrer"
-                      >
-                        {decodeUrlForDisplay(item.source_url)}
-                      </a>
-                    </div>
+                    {item.source_url ? (
+                      <div>
+                        <SourceHref href={item.source_url}>
+                          {decodeUrlForDisplay(item.source_url)}
+                        </SourceHref>
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
@@ -560,17 +607,12 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
           <h3 className="mb-2 text-sm font-medium">来源</h3>
           {view.sources && view.sources.length > 0 ? (
             <ul className="space-y-1 text-sm">
-              {view.sources.map((source) => (
-                <li key={source.url} className="flex flex-wrap items-center gap-2">
+              {view.sources.map((source, index) => (
+                <li key={`${source.url}-${index}`} className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{sourceKindLabels[source.kind] ?? source.kind}</Badge>
-                  <a
-                    className="text-primary break-all underline-offset-4 hover:underline"
-                    href={source.url}
-                    target="_blank"
-                    rel="noreferrer"
-                  >
+                  <SourceHref href={source.url}>
                     {source.title ?? source.site ?? decodeUrlForDisplay(source.url)}
-                  </a>
+                  </SourceHref>
                 </li>
               ))}
             </ul>
@@ -582,5 +624,3 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
     </Card>
   )
 }
-
-
