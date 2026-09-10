@@ -1,4 +1,4 @@
-import { Effect, Layer, Duration, Fiber } from "effect"
+import { Effect, Layer, Duration, Deferred } from "effect"
 import { NodeHttpServer } from "@effect/platform-node"
 import { HttpRouter } from "effect/unstable/http"
 import { createServer } from "node:http"
@@ -43,9 +43,13 @@ const ServicesLayer = Layer.mergeAll(
 // 入口
 // ─────────────────────────────────────────────────────────────
 
-const HttpServerLayer = NodeHttpServer.layer(createServer, { port: 8787 })
+const HttpServerLayer = Layer.unwrap(
+  Effect.gen(function* () {
+    const config = yield* AppConfig
+    return NodeHttpServer.layer(createServer, { port: config.port, host: config.host })
+  }),
+)
 
-// 路由层 → serve(直接调用)→ 提供 HttpServer
 const HttpAppLayer = HttpRouter.serve(RoutesLayer).pipe(
   Layer.provide(HttpServerLayer),
 )
@@ -64,25 +68,19 @@ const program = Effect.gen(function* () {
       `agent=${config.opencodeAgent}${config.opencodeModel ? `,模型=${config.opencodeModel}` : "(模型取自 opencode.jsonc)"}`,
   )
   console.log(
-    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | GET /api/health",
+    "[search-agent] 接口: POST /api/search {\"query\",\"type\",\"stream\"} | GET /api/search | GET /api/search/:id | GET /api/search/:id SSE | POST /api/search/:id/abort | GET /api/health",
   )
 
+  const ready = yield* Deferred.make<void>()
   yield* persistOpencodeTrace(bridge.events, tasks).pipe(Effect.forkScoped)
-  yield* eventLoop(opencode.client, bridge.events).pipe(Effect.forkScoped)
-  yield* Effect.never
+  yield* eventLoop(opencode.client, bridge.events, ready).pipe(Effect.forkScoped)
+  yield* Deferred.await(ready)
+
+  console.log(`[search-agent] HTTP 监听 ${config.host}:${config.port}`)
+  yield* Layer.launch(HttpAppLayer)
 })
 
-// 先构建 services context(scoped),再提供;HTTP 层作为 scoped 资源同时运行
-// 事件桥随 program 启动;HTTP 层与 program 都由 services 提供
-const runnable = Effect.scoped(
-  Effect.gen(function* () {
-    // 构建 services context,再提供给 HTTP 与 program
-    const ctx = yield* Layer.build(ServicesLayer)
-    const httpFiber = yield* Effect.provideContext(ctx)(Layer.launch(HttpAppLayer)).pipe(Effect.forkScoped)
-    yield* Effect.provideContext(ctx)(program)
-    yield* Fiber.interrupt(httpFiber)
-  }),
-)
+const runnable = Effect.scoped(program.pipe(Effect.provide(ServicesLayer)))
 
 // 用 runPromise 代替 runMain(NodeRuntime 的 keep-alive 与 Effect.sleep 冲突)
 Effect.runPromise(runnable).catch((err) => {
