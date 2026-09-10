@@ -166,8 +166,15 @@ const abortRoute = HttpRouter.add("POST", "/api/search/:id/abort", () =>
     if (task.status === "done" || task.status === "error") {
       return HttpServerResponse.jsonUnsafe(task, { status: 200 })
     }
+    console.log(`[http] 取消任务 id=${id}${task.sessionId ? ` session=${task.sessionId}` : ""}`)
     if (task.sessionId) {
-      yield* ops.abortSession(task.sessionId).pipe(Effect.ignoreCause)
+      yield* ops.abortSession(task.sessionId).pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            console.warn(`[http] 中止会话失败 id=${id} session=${task.sessionId}:`, err)
+          }),
+        ),
+      )
     }
     yield* tasks.update(id, {
       status: "error",

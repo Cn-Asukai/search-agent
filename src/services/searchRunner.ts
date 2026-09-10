@@ -63,7 +63,16 @@ export const SearchRunnerLive: Layer.Layer<
       error: string,
     ) =>
       Effect.gen(function* () {
-        if (sessionID) yield* ops.abortSession(sessionID).pipe(Effect.ignore)
+        console.error(`[search-runner] 任务失败 task=${taskId}${sessionID ? ` session=${sessionID}` : ""}: ${error}`)
+        if (sessionID) {
+          yield* ops.abortSession(sessionID).pipe(
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                console.warn(`[search-runner] 中止会话失败 task=${taskId} session=${sessionID}:`, err)
+              }),
+            ),
+          )
+        }
         yield* tasks.update(taskId, { status: "error", error, endedAt: Date.now() })
       })
 
@@ -73,12 +82,14 @@ export const SearchRunnerLive: Layer.Layer<
         const taskOpt = yield* tasks.get(taskId)
         if (Option.isNone(taskOpt)) return
         const task = Option.getOrThrow(taskOpt)
+        console.log(`[search-runner] 开始 task=${taskId} type=${task.type} query=${task.query}`)
 
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
         yield* tasks.appendProgress(taskId, { kind: "status", message: "任务开始,正在创建检索会话" })
 
         const createStarted = Date.now()
         const sessionID = yield* ops.createSession
+        console.log(`[search-runner] 会话已创建 task=${taskId} session=${sessionID}`)
         yield* tasks.update(taskId, { sessionId: sessionID })
         yield* tasks.appendTraceStep(sessionID, {
           kind: "call",
@@ -129,6 +140,7 @@ export const SearchRunnerLive: Layer.Layer<
           }
 
           if (result) {
+            console.log(`[search-runner] 完成 task=${taskId} session=${sessionID} verdict=${result.verdict}`)
             yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
             yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
             return
@@ -139,14 +151,17 @@ export const SearchRunnerLive: Layer.Layer<
             return
           }
           if (info?.error) {
+            const message = describeMessageError(info.error)
+            console.error(`[search-runner] 模型错误 task=${taskId} session=${sessionID}: ${message}`)
             yield* tasks.update(taskId, {
               status: "error",
-              error: describeMessageError(info.error),
+              error: message,
               endedAt: Date.now(),
             })
             return
           }
 
+          console.error(`[search-runner] 无结构化结果 task=${taskId} session=${sessionID}`)
           yield* tasks.update(taskId, {
             status: "error",
             error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
