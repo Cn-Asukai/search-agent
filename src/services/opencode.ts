@@ -31,16 +31,19 @@ export class OpenCode extends Context.Service<OpenCode, {
 export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = Layer.effect(
   OpenCode
 )(Effect.gen(function* () {
+  // Effect 4 的 Layer.effect 在 Scope 内构建(旧 Layer.scoped 已并入);
+  // acquireRelease 在 Layer 释放时调用 server.close() → SDK stop(proc)。
   const config = yield* AppConfig
-  return yield* Effect.tryPromise(() =>
-    createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
-  ).pipe(
-    Effect.mapError((err) => new Error(hintEmbeddedError(err))),
-    Effect.map((server) => {
-      const client = createOpencodeClient({ baseUrl: server.url })
-      return { client, url: server.url, close: () => server.close() }
-    }),
+  const server = yield* Effect.acquireRelease(
+    Effect.tryPromise(() =>
+      createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
+    ).pipe(
+      Effect.mapError((err) => new Error(hintEmbeddedError(err))),
+    ),
+    (acquired) => Effect.sync(() => acquired.close()),
   )
+  const client = createOpencodeClient({ baseUrl: server.url })
+  return { client, url: server.url, close: () => server.close() }
 }))
 
 function hintEmbeddedError(err: unknown): string {
@@ -68,7 +71,7 @@ export class OpenCodeOps extends Context.Service<OpenCodeOps, {
   readonly getLatestAssistant: (
     sessionID: string,
   ) => Effect.Effect<{ readonly info: AssistantMessage; readonly parts: readonly unknown[] }, Error>
-  readonly abortSession: (sessionID: string) => Effect.Effect<void>
+  readonly abortSession: (sessionID: string) => Effect.Effect<void, Error>
   readonly health: Effect.Effect<{ ok: boolean; version?: string }>
 }>()("OpenCodeOps") {}
 
@@ -184,8 +187,6 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
           }),
         ),
         Effect.mapError((err) => new Error(`中止会话失败:${err instanceof Error ? err.message : String(err)}`)),
-        Effect.orDie,
-        Effect.ignore,
       )
     }
 
