@@ -6,6 +6,7 @@ import {
   type OpencodeClient,
 } from "@opencode-ai/sdk/v2"
 import { AppConfig } from "../env.js"
+import { logWarn } from "../log.js"
 import {
   SearchResult,
   reconcileVerdict,
@@ -211,15 +212,22 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
     }
 
     const health = Effect.tryPromise(() => client.global.health()).pipe(
-      Effect.map((res) =>
-        res.error
-          ? { ok: false }
-          : {
-              ok: true,
-              version: (res.data as { version?: string } | undefined)?.version,
-            },
+      Effect.map((res) => {
+        if (res.error) {
+          logWarn("opencode", "health 返回错误", res.error)
+          return { ok: false }
+        }
+        return {
+          ok: true,
+          version: (res.data as { version?: string } | undefined)?.version,
+        }
+      }),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          logWarn("opencode", "health 检查失败", err)
+          return { ok: false }
+        }),
       ),
-      Effect.catch(() => Effect.succeed({ ok: false })),
     )
 
     return {

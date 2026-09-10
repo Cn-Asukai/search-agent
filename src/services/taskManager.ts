@@ -11,6 +11,7 @@ import {
   type TaskEvent,
   type WorkType,
 } from "../domain/search.js"
+import { logWarn } from "../log.js"
 import { STALE_TASK_ERROR } from "./sqlite.js"
 import type { OpencodeEvent } from "./eventBridge.js"
 
@@ -194,7 +195,7 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
       ),
       Effect.catch((err) =>
         Effect.sync(() => {
-          console.warn("[task-manager] 写入 opencode_trace 失败:", err)
+          logWarn("task-manager", "写入 opencode_trace 失败", err)
         }),
       ),
     )

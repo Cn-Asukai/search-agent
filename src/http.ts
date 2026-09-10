@@ -8,6 +8,7 @@ import { TaskManager, type TaskManagerService } from "./services/taskManager.js"
 import { SearchRunner } from "./services/searchRunner.js"
 import { buildSearchSseStream, encodeSse } from "./services/sseStream.js"
 import { readRevision, resolveAppVersion } from "./services/appVersion.js"
+import { logInfo, logWarn } from "./log.js"
 
 const APP_VERSION = resolveAppVersion(process.env.GIT_VERSION)
 
@@ -166,8 +167,15 @@ const abortRoute = HttpRouter.add("POST", "/api/search/:id/abort", () =>
     if (task.status === "done" || task.status === "error") {
       return HttpServerResponse.jsonUnsafe(task, { status: 200 })
     }
+    logInfo("http", `取消任务 id=${id}${task.sessionId ? ` session=${task.sessionId}` : ""}`)
     if (task.sessionId) {
-      yield* ops.abortSession(task.sessionId).pipe(Effect.ignoreCause)
+      yield* ops.abortSession(task.sessionId).pipe(
+        Effect.catch((err) =>
+          Effect.sync(() => {
+            logWarn("http", `中止会话失败 id=${id} session=${task.sessionId}`, err)
+          }),
+        ),
+      )
     }
     yield* tasks.update(id, {
       status: "error",

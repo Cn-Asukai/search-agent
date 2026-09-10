@@ -1,5 +1,6 @@
 import { Context, Deferred, Effect, Layer, PubSub, type Scope } from "effect"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2"
+import { logInfo, logWarn } from "../log.js"
 
 // ─────────────────────────────────────────────────────────────
 // opencode 事件桥:订阅一次全局 SSE,按 sessionID 分发到
@@ -137,16 +138,17 @@ export async function runNativeLoop(
       if (ready && !signaledReady) {
         signaledReady = true
         Effect.runSync(Deferred.succeed(ready, undefined))
+        logInfo("event-bridge", "已订阅 opencode 事件流")
       }
       for await (const event of subscription.stream) {
         if (signal?.aborted) return
         // 必须等 publish 完成再读下一条,否则终态 message.updated 与 session.idle 可能乱序
         await Effect.runPromise(PubSub.publish(events, event as OpencodeEvent))
       }
-      console.warn(`[event-bridge] 事件流结束,5s 后重连`)
+      logWarn("event-bridge", "事件流结束,5s 后重连")
     } catch (err) {
       if (signal?.aborted) return
-      console.warn(`[event-bridge] 事件流异常,5s 后重连:`, err)
+      logWarn("event-bridge", "事件流异常,5s 后重连", err)
     }
     await delay(5000, signal)
   }

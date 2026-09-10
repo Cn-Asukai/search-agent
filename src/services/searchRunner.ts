@@ -11,11 +11,16 @@ import { waitSessionSettled } from "./sessionWait.js"
 import { TaskManager } from "./taskManager.js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { SearchResult } from "../domain/search.js"
+import { logError, logInfo, logWarn } from "../log.js"
 
 // ─────────────────────────────────────────────────────────────
 // 检索任务执行器:信号量限流 → 建会话 → promptAsync 异步提交
 // → 事件流等待终态 → 拉消息解析结构化输出 → 写回任务表
 // ─────────────────────────────────────────────────────────────
+
+function clip(text: string, max = 80): string {
+  return text.length <= max ? text : `${text.slice(0, max)}…`
+}
 
 export class SearchRunner extends Context.Service<SearchRunner, {
   /** 启动一个检索任务(排队/执行),不阻塞调用方 */
@@ -63,7 +68,16 @@ export const SearchRunnerLive: Layer.Layer<
       error: string,
     ) =>
       Effect.gen(function* () {
-        if (sessionID) yield* ops.abortSession(sessionID).pipe(Effect.ignore)
+        logError("search-runner", `任务失败 task=${taskId}${sessionID ? ` session=${sessionID}` : ""}: ${error}`)
+        if (sessionID) {
+          yield* ops.abortSession(sessionID).pipe(
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                logWarn("search-runner", `中止会话失败 task=${taskId} session=${sessionID}`, err)
+              }),
+            ),
+          )
+        }
         yield* tasks.update(taskId, { status: "error", error, endedAt: Date.now() })
       })
 
@@ -71,14 +85,19 @@ export const SearchRunnerLive: Layer.Layer<
     const runTask = (taskId: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
         const taskOpt = yield* tasks.get(taskId)
-        if (Option.isNone(taskOpt)) return
+        if (Option.isNone(taskOpt)) {
+          logWarn("search-runner", `任务不存在 task=${taskId}`)
+          return
+        }
         const task = Option.getOrThrow(taskOpt)
+        logInfo("search-runner", `开始 task=${taskId} type=${task.type} query=${clip(task.query)}`)
 
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
         yield* tasks.appendProgress(taskId, { kind: "status", message: "任务开始,正在创建检索会话" })
 
         const createStarted = Date.now()
         const sessionID = yield* ops.createSession
+        logInfo("search-runner", `会话已创建 task=${taskId} session=${sessionID}`)
         yield* tasks.update(taskId, { sessionId: sessionID })
         yield* tasks.appendTraceStep(sessionID, {
           kind: "call",
@@ -118,7 +137,14 @@ export const SearchRunnerLive: Layer.Layer<
 
           // 超时/失败路径不再拉 messages,避免会话很大时卡住写不回 error
           if (!result && outcome.ok) {
-            const latest = yield* ops.getLatestAssistant(sessionID).pipe(Effect.option)
+            const latest = yield* ops.getLatestAssistant(sessionID).pipe(
+              Effect.tapError((err) =>
+                Effect.sync(() => {
+                  logWarn("search-runner", `回拉助手消息失败 task=${taskId} session=${sessionID}`, err)
+                }),
+              ),
+              Effect.option,
+            )
             if (Option.isSome(latest)) {
               result = resolveSearchResult({
                 info: latest.value.info,
@@ -129,6 +155,7 @@ export const SearchRunnerLive: Layer.Layer<
           }
 
           if (result) {
+            logInfo("search-runner", `完成 task=${taskId} session=${sessionID} verdict=${result.verdict}`)
             yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
             yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
             return
@@ -139,14 +166,17 @@ export const SearchRunnerLive: Layer.Layer<
             return
           }
           if (info?.error) {
+            const message = describeMessageError(info.error)
+            logError("search-runner", `模型错误 task=${taskId} session=${sessionID}: ${message}`)
             yield* tasks.update(taskId, {
               status: "error",
-              error: describeMessageError(info.error),
+              error: message,
               endedAt: Date.now(),
             })
             return
           }
 
+          logError("search-runner", `无结构化结果 task=${taskId} session=${sessionID}`)
           yield* tasks.update(taskId, {
             status: "error",
             error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
