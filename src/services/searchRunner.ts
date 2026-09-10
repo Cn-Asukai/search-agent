@@ -88,7 +88,7 @@ export const SearchRunnerLive: Layer.Layer<
         // wait 成功或超时即收尾;submit 失败则立刻失败。不要 Effect.all 等 promptAsync
         // 一直不返回,否则 wait 超时也无法写回任务。
         const outcome = yield* waitSessionSettled(bridge.events, sessionID, config.taskTimeout).pipe(
-          Effect.race(
+          Effect.raceFirst(
             ops.submitSearch(sessionID, {
               query: task.query,
               type: task.type,

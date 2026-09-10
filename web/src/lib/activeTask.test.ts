@@ -47,5 +47,27 @@ describe("active task persistence", () => {
     expect(readTaskIdFromSearch("task=from-url&x=1")).toBe("from-url")
     expect(readTaskIdFromSearch("")).toBeNull()
     expect(readTaskIdFromSearch("?q=foo")).toBeNull()
+    expect(readTaskIdFromSearch("?task=%20")).toBeNull()
+  })
+
+  it("treats missing or throwing storage as absent", () => {
+    expect(readActiveTaskId(null)).toBeNull()
+    expect(readActiveTaskId(undefined)).toBeNull()
+    writeActiveTaskId("x", null)
+    clearActiveTaskId(null)
+    const throwing: Pick<Storage, "getItem" | "setItem" | "removeItem"> = {
+      getItem() {
+        throw new Error("denied")
+      },
+      setItem() {
+        throw new Error("denied")
+      },
+      removeItem() {
+        throw new Error("denied")
+      },
+    }
+    expect(readActiveTaskId(throwing)).toBeNull()
+    expect(() => writeActiveTaskId("x", throwing)).not.toThrow()
+    expect(() => clearActiveTaskId(throwing)).not.toThrow()
   })
 })

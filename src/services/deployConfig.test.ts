@@ -87,3 +87,24 @@ test("dev compose forwards git identity as image build args", () => {
   assert.match(compose, /GIT_REVISION:\s*\$\{GIT_REVISION/)
   assert.match(compose, /GIT_VERSION:\s*\$\{GIT_VERSION/)
 })
+
+test("PR test workflow triggers on pull_request_target opened/synchronize/reopened", () => {
+  const workflow = readRepo(".github/workflows/test.yml")
+  assert.match(workflow, /^on:\s*$/m)
+  assert.match(workflow, /pull_request_target:/)
+  assert.match(workflow, /types:\s*\[opened,\s*synchronize,\s*reopened\]/)
+  assert.doesNotMatch(workflow, /^\s*pull_request:\s*$/m)
+})
+
+test("PR test workflow checks out PR head, installs Node 22.16+, and runs all tests", () => {
+  const workflow = readRepo(".github/workflows/test.yml")
+  const active = uncommentedLines(workflow).join("\n")
+  assert.match(active, /github\.event\.pull_request\.head\.sha/)
+  assert.match(active, /persist-credentials:\s*false/)
+  assert.match(active, /node-version:\s*"22\.16"/)
+  assert.match(active, /npm ci/)
+  assert.match(active, /npm ci --prefix web/)
+  assert.match(active, /npm test/)
+  assert.match(active, /npm run web:test/)
+  assert.doesNotMatch(active, /secrets\./)
+})

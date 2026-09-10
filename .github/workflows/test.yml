@@ -1,0 +1,45 @@
+# 在 pull_request_target 上跑全部后端 + 前端单测。
+# 工作流 YAML 来自 default 分支;必须显式 checkout PR head,否则测的是 base 旧代码。
+# 本 job 不读取 secrets.*,且 checkout 不持久化凭证。
+name: Tests
+
+on:
+  pull_request_target:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Run all tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@v5
+        with:
+          repository: ${{ github.event.pull_request.head.repo.full_name }}
+          ref: ${{ github.event.pull_request.head.sha }}
+          persist-credentials: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.16"
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            web/package-lock.json
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install web dependencies
+        run: npm ci --prefix web
+
+      - name: Run backend tests
+        run: npm test
+
+      - name: Run frontend tests
+        run: npm run web:test

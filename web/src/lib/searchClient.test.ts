@@ -2,10 +2,12 @@ import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  applySseEvent,
   consumeSseChunk,
   createSearchClient,
   mapTaskToView,
   parseSseFrame,
+  type SearchSession,
   type Task,
 } from "./searchClient.ts"
 import { encodeSse, startProtocolStub, type ProtocolStub } from "./protocolStub.ts"
@@ -224,5 +226,50 @@ describe("shipped search client against HTTP SSE stub", () => {
     expect(attached.view?.kind).toBe("result")
     expect(attached.view?.verdict).toBe("both")
     expect(attached.view?.summary).toMatch(/転生したら剣でした/)
+  })
+
+  it("GET /api/search lists the created task", async () => {
+    stub = await startProtocolStub()
+    const client = createSearchClient({ baseUrl: stub.baseUrl })
+    expect(await client.listRecent()).toEqual([])
+    await client.searchStream({ query: "転生したら剣でした", type: "novel" })
+    const recent = await client.listRecent()
+    expect(recent).toHaveLength(1)
+    expect(recent[0]?.query).toBe("転生したら剣でした")
+    expect(recent[0]?.type).toBe("novel")
+    expect(recent[0]?.id).toBe("stub-task-1")
+  })
+
+  it("surfaces JSON error bodies from getTask 404", async () => {
+    stub = await startProtocolStub()
+    const client = createSearchClient({ baseUrl: stub.baseUrl })
+    await expect(client.getTask("missing")).rejects.toThrow(/获取任务失败 \(404\): 任务不存在/)
+  })
+})
+
+describe("search client input guards and SSE apply", () => {
+  it("rejects empty query and invalid work type before fetch", async () => {
+    const client = createSearchClient({
+      fetch: async () => {
+        throw new Error("fetch should not run")
+      },
+    })
+    await expect(client.searchStream({ query: "   ", type: "novel" })).rejects.toThrow("query 不能为空")
+    await expect(
+      client.searchStream({ query: "x", type: "film" as Task["type"] }),
+    ).rejects.toThrow("type 必须是 novel、manga 或 unknown")
+    await expect(client.attachStream("  ")).rejects.toThrow("缺少任务 id")
+  })
+
+  it("applySseEvent ignores ping and maps error tasks", () => {
+    const session: SearchSession = { task: null, progress: [], view: null }
+    applySseEvent(session, { event: "ping", data: { ts: 1 } })
+    expect(session.task).toBeNull()
+    applySseEvent(session, {
+      event: "error",
+      data: { id: "t1", query: "x", type: "manga", status: "error", createdAt: 1, updatedAt: 1, progress: [] },
+    })
+    expect(session.view?.kind).toBe("error")
+    expect(session.view?.error).toBe("检索失败")
   })
 })
