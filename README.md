@@ -159,7 +159,7 @@ PR 打开、同步或重开时,[OpenCodeReview](https://open-codereview.ai/docs/
 
 ```jsonc
 {
-  "query": "転生したら剣でした",     // 必填:作品名/描述(可含作者等线索,≤500 字)
+  "query": "転生したら剣でした",     // 必填:作品名/描述(可含作者等线索)
   "type": "novel",                  // 可选:novel | manga | unknown(默认 unknown,两类都查)
   "stream": false                   // 可选:true 时返回 SSE 进度流
 }
@@ -187,7 +187,7 @@ curl -N -X POST http://localhost:8787/api/search \
 {
   "verdict": "both",          // official 仅官方中文 | fan 仅民间汉化 | both 均有 | none 均无 | uncertain 无法确定
   "confidence": "high",
-  "work": { "original_title": "転生したら剣でした", "chinese_title": "转生成为了只有乖乖女的我也可以斩杀的魔王", "type": "novel" },
+  "work": { "original_title": "転生したら剣でした", "chinese_title": "转生成为魔剑", "type": "novel" },
   "official": { "exists": true, "publisher": "东立出版社", "regions": ["台湾"], "evidence": "…" },
   "fan": { "exists": true, "translations": [ { "group": "…", "status": "completed", "source_url": "https://…" } ] },
   "sources": [ { "url": "https://…", "kind": "database" } ],
@@ -218,7 +218,7 @@ curl -N -X POST http://localhost:8787/api/search \
 | `prompts/hanhua-search.md` | 检索 agent 的系统提示词(检索策略、判定标准、反编造要求) |
 | `.env`(参考 `.env.example`) | 模型网关、端口、并发/超时、鉴权、WEBSEARCH_TOKEN |
 
-常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 5 分钟)、`SQLITE_PATH`(默认 `./data/search-agent.sqlite`)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
+常用环境变量:`LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL`(自定义网关)、`PORT`、`OPENCODE_MODEL`(覆盖内部模型 id,默认 `custom/default`)、`MAX_CONCURRENCY`(默认 3)、`TASK_TIMEOUT_MS`(默认 10 分钟 / 600000)、`TASK_RETENTION`(默认 500 条任务)、`PROGRESS_RETENTION`(默认每条进度 200)、`TRACE_STEP_RETENTION`(默认 trace 500 步)、`SQLITE_PATH`(默认 `./data/search-agent.sqlite`)、`API_AUTH_KEY`(设置后接口需要 Bearer 鉴权)。
 
 本服务启动时自动 spawn 内嵌 `opencode serve`。检索产生的 session 会保留在本机(`~/.local/share/opencode`),可用于调试回看;不需要时可定期用 opencode CLI 清理。
 

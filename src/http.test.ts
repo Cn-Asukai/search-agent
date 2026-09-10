@@ -29,6 +29,9 @@ function configLive(opts?: { apiAuthKey?: string; syncMaxWaitMs?: number }) {
       syncMaxWait: Duration.millis(opts?.syncMaxWaitMs ?? 80),
       apiAuthKey: opts?.apiAuthKey ? Redacted.make(opts.apiAuthKey) : undefined,
       sqlitePath: ":memory:",
+      taskRetention: 500,
+      progressRetention: 200,
+      traceStepRetention: 500,
     }),
   )
 }

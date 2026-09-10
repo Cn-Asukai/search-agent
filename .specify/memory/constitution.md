@@ -1,16 +1,11 @@
 <!--
 Sync Impact Report
-- Version change: (unratified template) → 1.0.0
+- Version change: 1.0.0 → 1.1.0
 - Modified principles:
-  - PRINCIPLE_1_NAME (template) → I. 代码质量优先
-  - PRINCIPLE_2_NAME (template) → II. 测试标准不可妥协
-  - PRINCIPLE_3_NAME (template) → III. 用户体验一致性
-  - PRINCIPLE_4_NAME (template) → IV. 性能有界且可观测
-  - PRINCIPLE_5_NAME (template) → V. 原则驱动技术选型与实现
-- Added sections:
-  - 技术选型与实现决策
-  - 质量门禁与开发流程
-- Removed sections: none (template placeholders replaced in place)
+  - III. 用户体验一致性: GET /health → GET /api/health
+  - IV. 性能有界且可观测: 内存任务表 → SQLite 文件 retention（默认 500 条任务 / progress 200 / trace 500 步）; 健康检查路径对齐
+- Added sections: none
+- Removed sections: none
 - Follow-up TODOs: none
 -->
 
@@ -50,7 +45,7 @@ Sync Impact Report
 
 客户端只看见任务与结构化结论，不看见 opencode。对外行为 MUST 稳定、可预期、可解释。
 
-- 对外 HTTP 面 MUST 保持现有资源语义：`POST /api/search` 创建并启动任务；`GET /api/search/:id` 读任务；`GET /api/search` 列最近任务；`GET /health` 报告本服务与 opencode 健康。新增端点不得复制上述语义。
+- 对外 HTTP 面 MUST 保持现有资源语义：`POST /api/search` 创建并启动任务；`GET /api/search/:id` 读任务；`GET /api/search` 列最近任务；`GET /api/health` 报告本服务与 opencode 健康。新增端点不得复制上述语义。
 - `stream=false` MUST 阻塞至 `done`/`error`，超时则返回 `202` 并保留可轮询任务；`stream=true` MUST 推送 `task` → `progress*` → `result|error`，终态后结束，不得在终态后继续心跳。
 - 同步 JSON 与 SSE 终态 MUST 暴露同一份 `Task` 形状。禁止两种模式各写一套结果字段。
 - 进度文案 MUST 使用简洁中文，描述用户能理解的阶段（如正在联网搜索），不得把内部工具名、SDK 错误栈或 opencode 原始事件直接甩给客户端。
@@ -67,10 +62,10 @@ Sync Impact Report
 - `POST /api/search` MUST 在入队后立即 `launch`；执行 MUST 在后台 fiber 中进行。禁止在路由里同步跑完整个 agent 会话。
 - 并发 MUST 受 `MAX_CONCURRENCY` 信号量约束（默认 3）。槽的 `take`/`release` MUST 在 SearchRunner 中显式配对，不得用会把超时包死的 `withPermits` 包裹整段检索。
 - 单任务 MUST 受 `TASK_TIMEOUT_MS` 限制（默认 10 分钟）；同步等待 MUST 受 `SYNC_MAX_WAIT_MS` 限制（默认 30 分钟），超时返回 `202` 而非无限挂起。
-- 内存任务表 MUST 有上限（当前 500 条任务、每条进度 200）。超出 MUST 淘汰最旧记录，不得无界增长。
+- SQLite 任务表 MUST 有上限（默认 500 条任务、每条 progress 200、每条 opencode_trace steps 500，可由 `TASK_RETENTION` / `PROGRESS_RETENTION` / `TRACE_STEP_RETENTION` 覆盖）。超出 MUST 先淘汰最旧已终态行，不够再淘汰最旧行；progress 与 trace 超出则丢最旧。不得无界增长。
 - EventBridge 全局 SSE MUST 只订一次；断线后按固定间隔重连（当前 5 秒），禁止 tight loop 重连把 CPU 打满。
 - 本进程 MUST 保持编排角色：不在本仓库实现网页爬虫或模型推理。搜索走 websearch MCP，推理走配置的 LLM 网关。
-- `/health` MUST 暴露 opencode 健康、运行中任务数与并发上限，供编排与排障使用。
+- `GET /api/health` MUST 暴露 opencode 健康、运行中任务数与并发上限，供编排与排障使用。
 - 新增特性若会增加每任务延迟、事件量或常驻内存，MUST 在方案中写明预算（超时、并发、载荷上限），否则不得实现。
 
 理由：一次检索可达数分钟且占用模型与搜索配额。无界并发、无界任务表或同步阻塞，会让健康检查与其他客户端一起饿死。
@@ -92,7 +87,7 @@ Sync Impact Report
 
 **语言与运行时**
 
-- MUST 使用 TypeScript 与 Node.js `>= 20.12`（依赖原生 `process.loadEnvFile`）。
+- MUST 使用 TypeScript 与 Node.js `>= 22.16`（`node:sqlite`；`process.loadEnvFile` 自 20.12 可用）。
 - MUST 保持 `"type": "module"`。新增 JS 工具链不得把项目拉回 CJS 主路径。
 
 **效果系统与 HTTP**
@@ -114,7 +109,7 @@ Sync Impact Report
 
 **状态与通信**
 
-- 任务状态 MUST 只存在 `TaskManager`（进程内）。当前阶段不得引入 Redis/DB 作为任务真相，除非原则 IV 的上限已不够且有迁移方案。
+- 任务状态 MUST 只存在 `TaskManager`，真相为 SQLite 文件（`SQLITE_PATH`）。不得再引入第二套任务存储（另一份 DB/Redis）作为并行真相。
 - 对客户端推送 MUST 使用现有 SSE 编码器；不得把 EventBridge 的 `OpencodeEvent` 原样转发。
 
 **可观测与安全**
@@ -131,7 +126,7 @@ Sync Impact Report
 合入前 MUST 满足：
 
 1. `npm run typecheck` 通过。
-2. `npm test` 通过（当前覆盖 `sessionWait`、`parseResult`、`eventBridge`、`sseStream`；新增纯逻辑 MUST 加入该脚本）。
+2. `npm test` 通过（当前覆盖 `sessionWait`、`parseResult`、`eventBridge`、`sseStream`、`deployConfig`、`taskManager`、`opencodeTrace`、`appVersion`；新增纯逻辑 MUST 加入该脚本）。
 3. 行为变更附带失败过的测试；仅重构也不得降低现有断言强度。
 4. 公开 API、SSE 事件或 `SearchResult` 字段变化时，README 与 `src/domain/search.ts` 同步更新。
 5. PR 说明、设计说明、提交说明使用中文；conventional 前缀可保留英文。
@@ -163,4 +158,4 @@ PR 打开或更新后 MUST 跟随 GitHub Actions（OpenCodeReview）。Publish t
 - 运行时开发指导见 `AGENTS.md` 与 `docs/architecture.md`；二者不得削弱本宪法。
 - 复杂性增量（新总线、新存储、新 HTTP 框架、直连模型）MUST 在方案中引用本宪法的否决条件。
 
-**Version**: 1.0.0 | **Ratified**: 2026-09-05 | **Last Amended**: 2026-09-05
+**Version**: 1.1.0 | **Ratified**: 2026-09-05 | **Last Amended**: 2026-09-10
