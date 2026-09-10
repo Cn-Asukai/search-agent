@@ -167,7 +167,7 @@ const abortRoute = HttpRouter.add("POST", "/api/search/:id/abort", () =>
       return HttpServerResponse.jsonUnsafe(task, { status: 200 })
     }
     if (task.sessionId) {
-      yield* ops.abortSession(task.sessionId)
+      yield* ops.abortSession(task.sessionId).pipe(Effect.ignoreCause)
     }
     yield* tasks.update(id, {
       status: "error",
