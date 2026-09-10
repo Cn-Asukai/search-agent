@@ -37,7 +37,7 @@ export const Translation = Schema.Struct({
   group: Schema.optional(Schema.String),
   status: Schema.Literals(["ongoing", "completed", "dropped", "unknown"]),
   progress: Schema.optional(Schema.String),
-  source_url: Schema.NonEmptyString,
+  source_url: Schema.optional(Schema.NonEmptyString),
   note: Schema.optional(Schema.String),
 })
 
@@ -173,7 +173,7 @@ export type SseClientEvent =
   | { readonly event: "ping"; readonly data: unknown }
 
 // ─────────────────────────────────────────────────────────────
-// 供 opencode StructuredOutput 工具使用的 JSON Schema。
+// 内嵌到用户消息中的 JSON Schema(最后一条回复必须符合)。
 // 只用 type/properties/required/enum/items/description,避免 anyOf、minLength:
 // opencode 读回 session 消息时会按封闭 JsonSchema 解码,多字段会 400。
 // ─────────────────────────────────────────────────────────────
@@ -205,7 +205,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
       additionalProperties: false,
       required: ["exists"],
       properties: {
-        exists: { type: "boolean" },
+        exists: { type: "boolean", description: "为 true 时 sources 至少一条真实 URL" },
         publisher: { type: "string" },
         regions: { type: "array", items: { type: "string" } },
         evidence: { type: "string" },
@@ -216,18 +216,18 @@ export const searchResultJsonSchema: Record<string, unknown> = {
       additionalProperties: false,
       required: ["exists", "translations"],
       properties: {
-        exists: { type: "boolean" },
+        exists: { type: "boolean", description: "为 true 时 sources 至少一条真实检索/抓取过的 URL;禁止编造链接" },
         translations: {
           type: "array",
           items: {
             type: "object",
             additionalProperties: false,
-            required: ["status", "source_url"],
+            required: ["status"],
             properties: {
               group: { type: "string" },
               status: { type: "string", enum: ["ongoing", "completed", "dropped", "unknown"] },
               progress: { type: "string" },
-              source_url: { type: "string", description: "可核查的来源 URL" },
+              source_url: { type: "string", description: "仅填真实检索/抓取过的 URL;没有可核查链接则省略本字段,禁止编造" },
               note: { type: "string" },
             },
           },
@@ -236,6 +236,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     },
     sources: {
       type: "array",
+      description: "可核查来源。fan.exists 为 true 时至少一条真实 URL;每条 url 必须是实际检索/抓取过的页面,禁止编造",
       items: {
         type: "object",
         additionalProperties: false,

@@ -96,6 +96,7 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
           ${null}, ${null}, ${null}, ${"[]"}, ${null}, ${null}, ${null}
         )
       `.pipe(Effect.orDie)
+      yield* enforceTaskRetention.pipe(Effect.orDie)
       return task
     })
 
@@ -144,10 +145,13 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
         const progress = parseProgress(row.progress_json)
         const full: ProgressEntry = {
           ...entry,
-          seq: progress.length + 1,
+          seq: (progress[progress.length - 1]?.seq ?? 0) + 1,
           ts: Date.now(),
         }
         progress.push(full)
+        if (progress.length > config.progressRetention) {
+          progress.splice(0, progress.length - config.progressRetention)
+        }
         yield* sql`
           UPDATE tasks
           SET progress_json = ${JSON.stringify(progress)}, updated_at = ${full.ts}
@@ -168,15 +172,25 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
       catch: (err) => err,
     }).pipe(
       Effect.flatMap((stepJson) =>
-        sql`
-          UPDATE tasks
-          SET opencode_trace = json_insert(
-            COALESCE(opencode_trace, json_object('sessionId', session_id, 'steps', json_array())),
-            '$.steps[#]',
-            json(${stepJson})
-          )
-          WHERE session_id = ${sessionId}
-        `,
+        sql.withTransaction(
+          Effect.gen(function* () {
+            const rows = yield* sql<{ opencode_trace: string | null }>`
+              SELECT opencode_trace FROM tasks WHERE session_id = ${sessionId}
+            `
+            const row = rows[0]
+            if (!row) return
+            const parsed = parseTraceJson(row.opencode_trace, sessionId)
+            parsed.steps.push(JSON.parse(stepJson) as OpencodeTraceStep)
+            if (parsed.steps.length > config.traceStepRetention) {
+              parsed.steps.splice(0, parsed.steps.length - config.traceStepRetention)
+            }
+            yield* sql`
+              UPDATE tasks
+              SET opencode_trace = ${JSON.stringify(parsed)}
+              WHERE session_id = ${sessionId}
+            `
+          }),
+        ),
       ),
       Effect.catch((err) =>
         Effect.sync(() => {
@@ -228,6 +242,31 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
     }),
     Effect.orDie,
   )
+
+  const enforceTaskRetention = Effect.gen(function* () {
+    const limit = config.taskRetention
+    const counted = yield* sql<{ total: number | null }>`SELECT COUNT(*) AS total FROM tasks`
+    const excess = Number(counted[0]?.total ?? 0) - limit
+    if (excess <= 0) return
+    yield* sql`
+      DELETE FROM tasks WHERE id IN (
+        SELECT id FROM tasks
+        WHERE status IN ('done', 'error')
+        ORDER BY created_at ASC, rowid ASC
+        LIMIT ${excess}
+      )
+    `
+    const again = yield* sql<{ total: number | null }>`SELECT COUNT(*) AS total FROM tasks`
+    const still = Number(again[0]?.total ?? 0) - limit
+    if (still <= 0) return
+    yield* sql`
+      DELETE FROM tasks WHERE id IN (
+        SELECT id FROM tasks
+        ORDER BY created_at ASC, rowid ASC
+        LIMIT ${still}
+      )
+    `
+  })
 
   return { events, semaphore, create, get, update, appendProgress, appendTraceStep, getTrace, recent, stats }
 }))
@@ -290,6 +329,20 @@ function parseProgress(raw: string): ProgressEntry[] {
     })
   } catch {
     return []
+  }
+}
+
+function parseTraceJson(raw: string | null, sessionId: string): { sessionId: string; steps: OpencodeTraceStep[] } {
+  if (!raw) return { sessionId, steps: [] }
+  try {
+    const parsed: unknown = JSON.parse(raw)
+    if (!parsed || typeof parsed !== "object") return { sessionId, steps: [] }
+    const rec = parsed as { sessionId?: unknown; steps?: unknown }
+    const sid = typeof rec.sessionId === "string" && rec.sessionId.length > 0 ? rec.sessionId : sessionId
+    const steps = Array.isArray(rec.steps) ? (rec.steps as OpencodeTraceStep[]) : []
+    return { sessionId: sid, steps }
+  } catch {
+    return { sessionId, steps: [] }
   }
 }
 

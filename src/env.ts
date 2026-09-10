@@ -4,7 +4,7 @@ import { Config, Context, Duration, Effect, Layer, Redacted } from "effect"
 // 配置:环境变量 + .env(语义与原 env.ts 一致)
 // ─────────────────────────────────────────────────────────────
 
-// .env 加载(Node >= 20.12 原生支持)
+// .env 加载(Node >= 22.16;process.loadEnvFile 自 20.12 可用,node:sqlite 需要 22.16)
 try {
   process.loadEnvFile()
 } catch {
@@ -48,6 +48,12 @@ export class AppConfig extends Context.Service<AppConfig, {
   readonly apiAuthKey: Redacted.Redacted<string> | undefined
   /** SQLite 文件路径;`:memory:` 仅测试 */
   readonly sqlitePath: string
+  /** SQLite 任务行上限;超出先淘汰最旧已终态,不够再淘汰最旧 */
+  readonly taskRetention: number
+  /** 每条任务 progress 条数上限;超出丢最旧 */
+  readonly progressRetention: number
+  /** 每条任务 opencode_trace.steps 上限;超出丢最旧 */
+  readonly traceStepRetention: number
 }>()("AppConfig") {}
 
 /** AppConfig 服务的实例类型 */
@@ -76,6 +82,9 @@ export const AppConfigLive: Layer.Layer<AppConfig, Config.ConfigError> = Layer.e
       sqlitePath: yield* Config.string("SQLITE_PATH").pipe(
         Config.withDefault("./data/search-agent.sqlite"),
       ),
+      taskRetention: yield* intConfig("TASK_RETENTION", 500),
+      progressRetention: yield* intConfig("PROGRESS_RETENTION", 200),
+      traceStepRetention: yield* intConfig("TRACE_STEP_RETENTION", 500),
     }
   }))
 

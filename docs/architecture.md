@@ -130,11 +130,11 @@ sequenceDiagram
 
 **OpenCode** — `createOpencodeServer` spawn 子进程，给出 `client` 和实际 `url`。挂了会提示：没装 CLI、端口占用、provider 没装上。
 
-**OpenCodeOps** — 用这个 `client` 做 RPC：`createSession`、`submitSearch`（`promptAsync` + Schema）、`abortSession`、`health`。`getLatestAssistant`（从 messages 里找非 compaction 的 assistant）是旧拉结果入口，**主路径已不用**，终态改从 EventBridge 的 `message.updated` 取，避开 messages 反序列化问题。
+**OpenCodeOps** — 用这个 `client` 做 RPC：`createSession`、`submitSearch`（`promptAsync` + 把 JSON Schema 写进用户消息）、`abortSession`、`health`。终态主路径从 EventBridge 的 `message.updated` 取结构化结论。`getLatestAssistant`（从 messages 里找非 compaction 的 assistant）是 SSE 解析失败时的 fallback：SearchRunner 在 `!result && outcome.ok` 时仍会调用。
 
 **EventBridge** — 服务对象只有一个无界 PubSub。`eventLoop` 在 `index.ts` 启动时 fork 一次，断线 5s 重连。`describePartEvent` 把工具名翻成「正在联网搜索:…」这类进度。
 
-**TaskManager** — 唯一任务真相，存在 SQLite。`events` 只给 HTTP。并发槽也放这里，但 `take`/`release` 由 SearchRunner 手动做（避免 `withPermits` 把超时包死）。启动时把仍为 `queued`/`running` 的行标成中断错误，不续跑。
+**TaskManager** — 唯一任务真相，存在 SQLite。任务行默认上限 500（先淘汰最旧已终态，不够再淘汰最旧）；progress 截断 200；opencode_trace steps 上限 500。`events` 只给 HTTP。并发槽也放这里，但 `take`/`release` 由 SearchRunner 手动做（避免 `withPermits` 把超时包死）。启动时把仍为 `queued`/`running` 的行标成中断错误，不续跑。
 
 **SearchRunner** — 对外只有 `launch(taskId)`。不存任务、不跟客户端说话，只编排 opencode 并把结果写回表。
 
@@ -171,10 +171,15 @@ src/services/taskManager.ts
 src/services/searchRunner.ts
 src/services/opencode.ts
 src/services/eventBridge.ts
+src/services/sessionWait.ts  等一次检索会话真正结束
+src/services/sseStream.ts    对外 SSE：task → progress* → result|error
+src/services/appVersion.ts   /api/health 的 version / revision
+web/                         Vite + React + shadcn 前端（开发时代理到 :8787）
 opencode.jsonc               内嵌 opencode：网关、MCP、agent
 prompts/hanhua-search.md     检索提示词
 Dockerfile                   只构建 agent
 docker-compose.yml           拉 agent + websearch 镜像
+docker-compose.dev.yml       本地开发：覆盖 agent 为当前工作树构建
+deploy/nginx/                静态 dist + /api 反代片段
 ```
-
 Docker 下 agent 等 websearch healthy 后再起，MCP 地址是 `http://websearch:8338/mcp`。websearch 的监听地址写在挂载的 `websearch.config.yaml`（`host: "0.0.0.0"`），不要用 `APP_HOST`。模型用环境变量 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`，不绑死厂商。

@@ -21,6 +21,9 @@ function configLive(sqlitePath: string) {
       syncMaxWait: Duration.millis(60_000),
       apiAuthKey: undefined,
       sqlitePath,
+      taskRetention: 500,
+      progressRetention: 200,
+      traceStepRetention: 500,
     }),
   )
 }
