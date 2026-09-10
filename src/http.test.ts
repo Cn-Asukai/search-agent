@@ -28,6 +28,9 @@ function configLive() {
       syncMaxWait: Duration.millis(80),
       apiAuthKey: undefined,
       sqlitePath: ":memory:",
+      taskRetention: 500,
+      progressRetention: 200,
+      traceStepRetention: 500,
     }),
   )
 }
