@@ -59,6 +59,17 @@ test("production image compiles with tsc and runs node dist", () => {
   assert.match(dockerfile, /CMD \["node", "dist\/index\.js"\]/)
 })
 
+test("runtime entrypoint chowns bind mounts then drops to node", () => {
+  const dockerfile = uncommentedLines(readRepo("Dockerfile")).join("\n")
+  assert.match(dockerfile, /ENTRYPOINT \["docker-entrypoint.sh"\]/)
+  assert.match(dockerfile, /CMD \["node", "dist\/index\.js"\]/)
+  assert.doesNotMatch(dockerfile, /\bUSER node\b/)
+  const entry = readRepo("docker-entrypoint.sh")
+  assert.match(entry, /setpriv --reuid=node --regid=node --init-groups/)
+  assert.match(entry, /\/home\/node\/\.local\/share\/opencode/)
+  assert.match(entry, /chown node:node \/home\/node\/data/)
+})
+
 test("compose does not use APP_HOST as MCP listen override", () => {
   const compose = readRepo("docker-compose.yml")
   const assigned = uncommentedLines(compose).filter((line) => /^\s*APP_HOST\s*:/.test(line))

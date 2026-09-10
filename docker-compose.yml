@@ -54,6 +54,7 @@ services:
       - "127.0.0.1:${AGENT_PORT:-8787}:8787"
     volumes:
       # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
+      # 宿主机目录需对容器 node(uid 1000) 可写;镜像入口 root 启动时会 chown
       - ./data/opencode:/home/node/.local/share/opencode
       # 任务表 + 原始 opencode 链路(tasks.opencode_trace)
       - ./data:/home/node/data

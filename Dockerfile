@@ -56,7 +56,7 @@ COPY prompts ./prompts
 RUN sed -i 's|http://127.0.0.1:8338/mcp|http://websearch:8338/mcp|' opencode.jsonc
 
 # opencode(Bun 打包)会写 $HOME/.local/{state,share}(会话/缓存/日志),
-# 整个 /home/node 归 node 用户,保证 HOME 下各目录可写
+# 整个 /home/node 归 node 用户。compose 绑宿主机目录时入口脚本再 chown。
 RUN mkdir -p /home/node/.local/share/opencode /home/node/data \
     && chown -R node:node /home/node
 
@@ -65,6 +65,9 @@ ENV SQLITE_PATH=/home/node/data/search-agent.sqlite
 # 端口 8787 为 HTTP 服务;内嵌 opencode serve 用随机空闲端口(默认),无需暴露
 EXPOSE 8787
 
-USER node
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
+RUN chmod 755 /usr/local/bin/docker-entrypoint.sh
 
+# 以 root 进入口:纠正 bind mount 属主后 setpriv 降到 node
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]
