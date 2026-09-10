@@ -8,10 +8,10 @@
 #   2. docker compose pull && docker compose up -d
 #   3. 验证: curl http://localhost:8787/api/health
 #
-# 数据目录:
-#   - opencode-data:agent 容器的 opencode 会话/缓存(~/.local/share/opencode)
-#   - agent-data:任务 SQLite(含原始 opencode 链路)
-#   - websearch-cache:websearch 搜索缓存
+# 数据目录(仓库根 ./data,已 gitignore;compose 会自动创建):
+#   - ./data:任务 SQLite(含原始 opencode 链路)→ 容器 /home/node/data
+#   - ./data/opencode:agent 的 opencode 会话/缓存
+#   - ./data/websearch:websearch 搜索缓存
 # ════════════════════════════════════════════════════════════════
 
 services:
@@ -50,9 +50,9 @@ services:
       - "${AGENT_PORT:-8787}:8787"
     volumes:
       # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
-      - opencode-data:/home/node/.local/share/opencode
+      - ./data/opencode:/home/node/.local/share/opencode
       # 任务表 + 原始 opencode 链路(tasks.opencode_trace)
-      - agent-data:/home/node/data
+      - ./data:/home/node/data
     depends_on:
       websearch:
         condition: service_healthy
@@ -83,7 +83,7 @@ services:
     volumes:
       # 覆盖镜像内默认 config.yaml（含 baidu.web_enabled: true）
       - ./websearch.config.yaml:/app/config.yaml:ro
-      - websearch-cache:/app/data
+      - ./data/websearch:/app/data
     healthcheck:
       # 远程镜像基于 alpine(busybox),无 curl;以端口探活代替 MCP 握手
       test: ["CMD-SHELL", "nc -z 127.0.0.1 8338 || exit 1"]
@@ -92,7 +92,3 @@ services:
       retries: 3
       start_period: 10s
 
-volumes:
-  opencode-data:
-  agent-data:
-  websearch-cache:

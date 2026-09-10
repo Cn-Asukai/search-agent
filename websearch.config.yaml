@@ -192,7 +192,7 @@ proxy:
 # enabled 不设置时按 storage_path 是否非空判断（向后兼容）
 # 显式 false 可强制禁用缓存（忽略 storage_path）
 # 显式 true 强制启用（需配合 storage_path）
-# Docker 工作目录为 /app，此路径落在 websearch-cache 卷上
+# Docker 工作目录为 /app，此路径落在宿主机 ./data/websearch（bind mount 到 /app/data）
 # ==============================================
 cache:
   # enabled: true
