@@ -168,19 +168,41 @@ test("SearchRunner writes error on task timeout and aborts the session", async (
 })
 
 test("SearchRunner writes error when submitSearch fails", async () => {
+  const aborted: string[] = []
   await run(
     2_000,
     Effect.gen(function* () {
       const runner = yield* SearchRunner
       const tasks = yield* TaskManager
+      const bridge = yield* EventBridge
       const created = yield* tasks.create("submit-fail", "unknown")
       yield* runner.launch(created.id)
       const ended = yield* pollTask(created.id, (t) => t.status === "error")
       assert.equal(ended.status, "error")
       assert.equal(ended.error, "prompt 提交失败")
+      assert.deepEqual(aborted, ["ses_test"])
+
+      const progressAfterError = ended.progress.length
+      yield* PubSub.publish(bridge.events, {
+        type: "message.part.updated",
+        properties: {
+          sessionID: "ses_test",
+          part: {
+            type: "tool",
+            tool: "smartsearch",
+            state: { status: "running", input: { query: "probe" } },
+          },
+        },
+      })
+      yield* Effect.sleep(Duration.millis(80))
+      const after = Option.getOrThrow(yield* tasks.get(created.id))
+      assert.equal(after.progress.length, progressAfterError)
     }),
     opsLayer({
       submitSearch: () => Effect.fail(new Error("prompt 提交失败")),
+      abortSession: (sessionID) => Effect.sync(() => {
+        aborted.push(sessionID)
+      }),
     }),
   )
 })
@@ -203,4 +225,34 @@ test("SearchRunner writes describeMessageError when the assistant ends with a mo
     assert.equal(ended.status, "error")
     assert.match(ended.error ?? "", /鉴权失败/)
   }))
+})
+
+test("abort RPC failure still marks the task error and releases the semaphore", async () => {
+  const aborted: string[] = []
+  await run(
+    80,
+    Effect.gen(function* () {
+      const runner = yield* SearchRunner
+      const tasks = yield* TaskManager
+      const created = yield* tasks.create("abort-fail", "novel")
+      yield* runner.launch(created.id)
+      const ended = yield* pollTask(created.id, (t) => t.status === "error", 2_000)
+      assert.equal(ended.status, "error")
+      assert.match(ended.error ?? "", /检索超时/)
+      assert.deepEqual(aborted, ["ses_test"])
+
+      const first = yield* tasks.semaphore.takeIfAvailable(1)
+      const second = yield* tasks.semaphore.takeIfAvailable(1)
+      assert.equal(first, true)
+      assert.equal(second, true)
+      yield* tasks.semaphore.release(2)
+    }),
+    opsLayer({
+      submitSearch: () => Effect.never,
+      abortSession: (sessionID) => {
+        aborted.push(sessionID)
+        return Effect.fail(new Error("abort rpc failed"))
+      },
+    }),
+  )
 })
