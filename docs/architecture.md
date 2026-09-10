@@ -128,7 +128,7 @@ sequenceDiagram
 
 **AppConfig** — 启动时读 `.env`。检索超时、并发上限、模型 id、内嵌 serve 的监听地址都从这里出。
 
-**OpenCode** — `createOpencodeServer` spawn 子进程，给出 `client` 和实际 `url`。挂了会提示：没装 CLI、端口占用、provider 没装上。
+**OpenCode** — `createOpencodeServer` spawn 子进程，给出 `client` 和实际 `url`。Layer scope 释放时 `server.close()` 停掉子进程。挂了会提示：没装 CLI、端口占用、provider 没装上。
 
 **OpenCodeOps** — 用这个 `client` 做 RPC：`createSession`、`submitSearch`（`promptAsync` + Schema）、`abortSession`、`health`。`getLatestAssistant`（从 messages 里找非 compaction 的 assistant）是旧拉结果入口，**主路径已不用**，终态改从 EventBridge 的 `message.updated` 取，避开 messages 反序列化问题。
 

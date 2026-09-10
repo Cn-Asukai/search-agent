@@ -28,20 +28,24 @@ export class OpenCode extends Context.Service<OpenCode, {
   readonly close: () => void
 }>()("OpenCode") {}
 
-export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = Layer.effect(
-  OpenCode
-)(Effect.gen(function* () {
-  const config = yield* AppConfig
-  return yield* Effect.tryPromise(() =>
-    createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
-  ).pipe(
-    Effect.mapError((err) => new Error(hintEmbeddedError(err))),
-    Effect.map((server) => {
-      const client = createOpencodeClient({ baseUrl: server.url })
-      return { client, url: server.url, close: () => server.close() }
-    }),
-  )
-}))
+/** Effect 4 的 Layer.effect 在 layer scope 里跑,没有单独的 Layer.scoped。 */
+export function makeOpenCodeLive(
+  spawn: typeof createOpencodeServer = createOpencodeServer,
+): Layer.Layer<OpenCode, Error, AppConfig> {
+  return Layer.effect(OpenCode)(Effect.gen(function* () {
+    const config = yield* AppConfig
+    const server = yield* Effect.acquireRelease(
+      Effect.tryPromise(() =>
+        spawn({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
+      ).pipe(Effect.mapError((err) => new Error(hintEmbeddedError(err)))),
+      (server) => Effect.sync(() => server.close()),
+    )
+    const client = createOpencodeClient({ baseUrl: server.url })
+    return { client, url: server.url, close: () => server.close() }
+  }))
+}
+
+export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = makeOpenCodeLive()
 
 function hintEmbeddedError(err: unknown): string {
   const message = err instanceof Error ? err.message : String(err)
