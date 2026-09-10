@@ -28,5 +28,5 @@
     }
   },
   "include": ["src"],
-  "exclude": ["src/**/*.test.ts", "src/lib/protocolStub.ts"]
+  "exclude": ["src/**/*.test.ts", "src/**/*.test.tsx", "src/lib/protocolStub.ts"]
 }

@@ -3,11 +3,13 @@ import type { AddressInfo } from "node:net"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   applySseEvent,
+  classifyHttpError,
   consumeSseChunk,
   createSearchClient,
   mapTaskToView,
   parseSseFrame,
   type SearchSession,
+  SearchHttpError,
   type Task,
 } from "./searchClient.ts"
 import { encodeSse, startProtocolStub, type ProtocolStub } from "./protocolStub.ts"
@@ -271,5 +273,154 @@ describe("search client input guards and SSE apply", () => {
     })
     expect(session.view?.kind).toBe("error")
     expect(session.view?.error).toBe("检索失败")
+  })
+})
+
+describe("classifyHttpError", () => {
+  it("maps 401/404/400 to classified titles", () => {
+    expect(classifyHttpError(401)).toEqual({ status: 401, title: "鉴权失败" })
+    expect(classifyHttpError(404)).toEqual({ status: 404, title: "任务不存在" })
+    expect(classifyHttpError(400)).toEqual({ status: 400, title: "请求无效" })
+    expect(classifyHttpError(500)).toEqual({ status: 500, title: "检索失败" })
+  })
+})
+
+describe("search client HTTP classification and resume", () => {
+  it("reconnects via attachStream when the first SSE ends while still running", async () => {
+    stub = await startProtocolStub()
+    stub.setMode("running")
+    const client = createSearchClient({ baseUrl: stub.baseUrl })
+    const disconnects: number[] = []
+    const session = await client.searchStream(
+      { query: "転生したら剣でした", type: "novel" },
+      { onDisconnect: () => disconnects.push(Date.now()) },
+    )
+    expect(disconnects.length).toBeGreaterThan(0)
+    expect(session.view?.kind).toBe("result")
+    expect(session.view?.verdict).toBe("both")
+    expect(stub.lastRequest?.method).toBe("GET")
+    expect(stub.lastRequest?.accept).toContain("text/event-stream")
+  })
+
+  it("throws SearchHttpError with 鉴权失败 on 401", async () => {
+    const server = createServer((_req, res) => {
+      res.writeHead(401, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ error: "unauthorized" }))
+    })
+    const { promise: listening, resolve } = Promise.withResolvers<void>()
+    server.listen(0, "127.0.0.1", () => resolve())
+    await listening
+    const addr = server.address() as AddressInfo
+    try {
+      const client = createSearchClient({ baseUrl: `http://127.0.0.1:${addr.port}` })
+      await expect(client.searchStream({ query: "x", type: "novel" })).rejects.toMatchObject({
+        name: "SearchHttpError",
+        status: 401,
+        title: "鉴权失败",
+      })
+      await expect(client.getTask("missing")).rejects.toBeInstanceOf(SearchHttpError)
+    } finally {
+      const { promise, resolve: done, reject } = Promise.withResolvers<void>()
+      server.close((err) => (err ? reject(err) : done()))
+      await promise
+    }
+  })
+
+  it("throws 任务不存在 on 404 and 请求无效 on 400", async () => {
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1")
+      if (url.pathname.startsWith("/api/search/")) {
+        res.writeHead(404, { "Content-Type": "application/json" })
+        res.end(JSON.stringify({ error: "nope" }))
+        return
+      }
+      res.writeHead(400, { "Content-Type": "application/json" })
+      res.end(JSON.stringify({ error: "bad query" }))
+    })
+    const { promise: listening, resolve } = Promise.withResolvers<void>()
+    server.listen(0, "127.0.0.1", () => resolve())
+    await listening
+    const addr = server.address() as AddressInfo
+    try {
+      const client = createSearchClient({ baseUrl: `http://127.0.0.1:${addr.port}` })
+      await expect(client.searchStream({ query: "x", type: "novel" })).rejects.toMatchObject({
+        status: 400,
+        title: "请求无效",
+      })
+      await expect(client.getTask("nope")).rejects.toMatchObject({
+        status: 404,
+        title: "任务不存在",
+      })
+    } finally {
+      const { promise, resolve: done, reject } = Promise.withResolvers<void>()
+      server.close((err) => (err ? reject(err) : done()))
+      await promise
+    }
+  })
+
+  it("does not treat a 202 JSON body as SSE and resumes via attach", async () => {
+    const task = {
+      id: "accepted-1",
+      query: "202-query",
+      type: "novel",
+      status: "running",
+      createdAt: 1,
+      updatedAt: 1,
+      progress: [{ seq: 1, ts: 1, kind: "status", message: "queued" }],
+    }
+    const done = {
+      ...task,
+      status: "done",
+      result: {
+        verdict: "none",
+        confidence: "low",
+        work: { original_title: "202-query", type: "novel" },
+        official: { exists: false },
+        fan: { exists: false, translations: [] },
+        sources: [{ url: "https://example.com/src", kind: "other" }],
+        summary: "无中文版本",
+      },
+    }
+    let posted = false
+    const server = createServer((req, res) => {
+      const url = new URL(req.url ?? "/", "http://127.0.0.1")
+      if (req.method === "POST" && url.pathname === "/api/search") {
+        posted = true
+        res.writeHead(202, { "Content-Type": "application/json" })
+        res.end(JSON.stringify(task))
+        return
+      }
+      if (req.method === "GET" && url.pathname === "/api/search/accepted-1") {
+        const accept = req.headers.accept ?? ""
+        if (accept.includes("text/event-stream")) {
+          res.writeHead(200, { "Content-Type": "text/event-stream" })
+          res.write(encodeSse("task", done))
+          res.write(encodeSse("result", done))
+          res.end()
+          return
+        }
+        res.writeHead(200, { "Content-Type": "application/json" })
+        res.end(JSON.stringify(task))
+        return
+      }
+      res.writeHead(404)
+      res.end()
+    })
+    const { promise: listening, resolve } = Promise.withResolvers<void>()
+    server.listen(0, "127.0.0.1", () => resolve())
+    await listening
+    const addr = server.address() as AddressInfo
+    try {
+      const client = createSearchClient({ baseUrl: `http://127.0.0.1:${addr.port}` })
+      const session = await client.searchStream({ query: "202-query", type: "novel" })
+      expect(posted).toBe(true)
+      expect(session.view?.kind).toBe("result")
+      expect(session.view?.summary).toBe("无中文版本")
+      expect(session.progress.map((p) => p.message)).toContain("queued")
+    } finally {
+      const { promise, resolve: doneClose, reject } = Promise.withResolvers<void>()
+      server.close((err) => (err ? reject(err) : doneClose()))
+      await promise
+    }
   })
 })

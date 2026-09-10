@@ -32,7 +32,7 @@ export type Translation = {
   group?: string
   status: "ongoing" | "completed" | "dropped" | "unknown"
   progress?: string
-  source_url: string
+  source_url?: string
   note?: string
 }
 
@@ -112,6 +112,7 @@ export type MappedSearchView = {
   type: WorkType
   status: Task["status"]
   error?: string
+  errorTitle?: string
   verdict?: SearchResult["verdict"]
   confidence?: SearchResult["confidence"]
   work?: SearchResult["work"]
@@ -133,6 +134,7 @@ export type SearchStreamHandlers = {
   onProgress?: (entry: ProgressEntry) => void
   onResult?: (view: MappedSearchView) => void
   onError?: (view: MappedSearchView) => void
+  onDisconnect?: () => void
   signal?: AbortSignal
 }
 
@@ -140,6 +142,22 @@ export type SearchClientConfig = {
   /** Empty string = same-origin (Vite proxy). */
   baseUrl?: string
   fetch?: typeof fetch
+}
+
+export type ClassifiedHttpError = {
+  status: number
+  title: string
+}
+
+export class SearchHttpError extends Error {
+  readonly status: number
+  readonly title: string
+  constructor(status: number, title: string, message: string) {
+    super(message)
+    this.name = "SearchHttpError"
+    this.status = status
+    this.title = title
+  }
 }
 
 const WORK_TYPE_SET = new Set<string>(WORK_TYPES)
@@ -210,6 +228,7 @@ export function mapTaskToView(task: Task): MappedSearchView {
       query: task.query,
       type: task.type,
       status: task.status,
+      errorTitle: "检索失败",
       error: task.error ?? "检索失败",
     }
   }
@@ -262,6 +281,39 @@ export function applySseEvent(session: SearchSession, ev: ParsedSseEvent): void 
       session.task = task
       session.view = mapTaskToView(task)
     }
+  }
+}
+
+export function classifyHttpError(status: number): ClassifiedHttpError {
+  if (status === 401) return { status, title: "鉴权失败" }
+  if (status === 404) return { status, title: "任务不存在" }
+  if (status === 400) return { status, title: "请求无效" }
+  return { status, title: "检索失败" }
+}
+
+export function errorViewFromUnknown(
+  err: unknown,
+  fallback: { taskId: string; query: string; type: WorkType },
+): MappedSearchView {
+  if (err instanceof SearchHttpError) {
+    return {
+      kind: "error",
+      taskId: fallback.taskId,
+      query: fallback.query,
+      type: fallback.type,
+      status: "error",
+      errorTitle: err.title,
+      error: err.message,
+    }
+  }
+  return {
+    kind: "error",
+    taskId: fallback.taskId,
+    query: fallback.query,
+    type: fallback.type,
+    status: "error",
+    errorTitle: "检索失败",
+    error: err instanceof Error ? err.message : String(err),
   }
 }
 
@@ -320,9 +372,59 @@ function isTaskStatus(value: unknown): value is Task["status"] {
   return value === "queued" || value === "running" || value === "done" || value === "error"
 }
 
+function isInFlight(task: Task | null | undefined): boolean {
+  return task?.status === "queued" || task?.status === "running"
+}
+
 function joinUrl(base: string, path: string): string {
   if (!base) return path
   return `${base.replace(/\/$/, "")}${path}`
+}
+
+function isAbortError(err: unknown): boolean {
+  return (err instanceof DOMException || err instanceof Error) && err.name === "AbortError"
+}
+
+function throwIfAborted(signal?: AbortSignal): void {
+  if (!signal?.aborted) return
+  throw new DOMException("Aborted", "AbortError")
+}
+
+function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (ms <= 0) {
+    throwIfAborted(signal)
+    return Promise.resolve()
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(resolve, ms)
+    const onAbort = () => {
+      clearTimeout(timer)
+      reject(new DOMException("Aborted", "AbortError"))
+    }
+    if (!signal) return
+    if (signal.aborted) {
+      onAbort()
+      return
+    }
+    signal.addEventListener("abort", onAbort, { once: true })
+  })
+}
+
+function bodyErrorText(text: string): string {
+  try {
+    const json: unknown = JSON.parse(text)
+    if (json && typeof json === "object" && "error" in json && typeof json.error === "string") {
+      return json.error
+    }
+  } catch {
+    // not JSON
+  }
+  return text.slice(0, 200)
+}
+
+function throwHttpError(prefix: string, status: number, text: string): never {
+  const { title } = classifyHttpError(status)
+  throw new SearchHttpError(status, title, `${prefix} (${status}): ${bodyErrorText(text)}`)
 }
 
 export async function readSseStream(
@@ -369,8 +471,130 @@ export async function readSseStream(
 }
 
 export function createSearchClient(config: SearchClientConfig = {}) {
-  const fetchImpl = config.fetch ?? globalThis.fetch.bind(globalThis)
   const baseUrl = config.baseUrl ?? ""
+
+  function fetchImpl(input: RequestInfo | URL, init?: RequestInit): Promise<Response> {
+    const impl = config.fetch ?? globalThis.fetch
+    return impl(input, init)
+  }
+
+  function applyEvent(session: SearchSession, handlers: SearchStreamHandlers, ev: ParsedSseEvent): void {
+    handlers.onEvent?.(ev)
+    applySseEvent(session, ev)
+    if (ev.event === "task" && session.task) handlers.onTask?.(session.task)
+    if (ev.event === "progress") {
+      const last = session.progress.at(-1)
+      if (last) handlers.onProgress?.(last)
+    }
+    if (ev.event === "result" && session.view) handlers.onResult?.(session.view)
+    if (ev.event === "error" && session.view) handlers.onError?.(session.view)
+  }
+
+  function adoptTask(session: SearchSession, handlers: SearchStreamHandlers, task: Task): void {
+    session.task = task
+    if (task.progress.length) session.progress = [...task.progress]
+    handlers.onTask?.(task)
+    for (const entry of task.progress) handlers.onProgress?.(entry)
+    if (task.status === "done" || task.status === "error") {
+      session.view = mapTaskToView(task)
+      if (session.view.kind === "result") handlers.onResult?.(session.view)
+      else handlers.onError?.(session.view)
+    }
+  }
+
+  async function pumpSse(res: Response, handlers: SearchStreamHandlers, session: SearchSession): Promise<void> {
+    if (!res.body) throw new Error("检索响应没有 body")
+    await readSseStream(res.body, (ev) => applyEvent(session, handlers, ev))
+  }
+
+  async function resumeInFlight(session: SearchSession, handlers: SearchStreamHandlers): Promise<SearchSession> {
+    let delay = 0
+    while (!session.view) {
+      throwIfAborted(handlers.signal)
+      const id = session.task?.id
+      if (!id) return session
+      handlers.onDisconnect?.()
+      await sleep(delay, handlers.signal)
+      delay = delay === 0 ? 250 : Math.min(delay * 2, 4000)
+
+      try {
+        const res = await fetchImpl(joinUrl(baseUrl, `/api/search/${encodeURIComponent(id)}`), {
+          method: "GET",
+          headers: { Accept: "text/event-stream" },
+          signal: handlers.signal,
+        })
+        if (res.status === 401 || res.status === 404 || res.status === 400) {
+          const text = await res.text()
+          throwHttpError("续接任务失败", res.status, text)
+        }
+        if (res.ok && res.status !== 202 && res.body) {
+          await pumpSse(res, handlers, session)
+          if (session.view) return session
+        }
+      } catch (err) {
+        if (isAbortError(err) || err instanceof SearchHttpError) throw err
+      }
+
+      try {
+        const task = await getTask(id, handlers.signal)
+        session.task = task
+        if (task.progress.length) session.progress = [...task.progress]
+        if (task.status === "done" || task.status === "error") {
+          session.view = mapTaskToView(task)
+          if (session.view.kind === "result") handlers.onResult?.(session.view)
+          else handlers.onError?.(session.view)
+          return session
+        }
+      } catch (err) {
+        if (isAbortError(err) || err instanceof SearchHttpError) throw err
+      }
+    }
+    return session
+  }
+
+  async function consumeSearchSse(
+    res: Response,
+    handlers: SearchStreamHandlers,
+    errorPrefix: string,
+  ): Promise<SearchSession> {
+    if (res.status === 202) {
+      const json: unknown = await res.json()
+      const task = asTask(json, null)
+      if (!task) throw new Error("任务响应无法解析")
+      const session: SearchSession = { task, progress: [...task.progress], view: null }
+      adoptTask(session, handlers, task)
+      if (session.view) return session
+      return resumeInFlight(session, handlers)
+    }
+    if (!res.ok) {
+      const text = await res.text()
+      throwHttpError(errorPrefix, res.status, text)
+    }
+
+    const session: SearchSession = { task: null, progress: [], view: null }
+    await pumpSse(res, handlers, session)
+
+    if (session.view) return session
+    if (session.task?.id) {
+      try {
+        const task = await getTask(session.task.id, handlers.signal)
+        session.task = task
+        if (task.progress.length) session.progress = [...task.progress]
+        if (task.status === "done" || task.status === "error") {
+          session.view = mapTaskToView(task)
+          if (session.view.kind === "result") handlers.onResult?.(session.view)
+          else handlers.onError?.(session.view)
+          return session
+        }
+      } catch (err) {
+        if (isAbortError(err) || err instanceof SearchHttpError) throw err
+      }
+      if (isInFlight(session.task)) {
+        return resumeInFlight(session, handlers)
+      }
+    }
+    return session
+  }
 
   async function searchStream(
     input: { query: string; type: WorkType },
@@ -403,51 +627,14 @@ export function createSearchClient(config: SearchClientConfig = {}) {
     return consumeSearchSse(res, handlers, "续接任务失败")
   }
 
-  async function consumeSearchSse(
-    res: Response,
-    handlers: SearchStreamHandlers,
-    errorPrefix: string,
-  ): Promise<SearchSession> {
-    if (!res.ok) {
-      const text = await res.text()
-      throw new Error(httpErrorMessage(errorPrefix, res.status, text))
-    }
-    if (!res.body) throw new Error("检索响应没有 body")
-
-    const session: SearchSession = { task: null, progress: [], view: null }
-    await readSseStream(res.body, (ev) => {
-      handlers.onEvent?.(ev)
-      applySseEvent(session, ev)
-      if (ev.event === "task" && session.task) handlers.onTask?.(session.task)
-      if (ev.event === "progress") {
-        const last = session.progress.at(-1)
-        if (last) handlers.onProgress?.(last)
-      }
-      if (ev.event === "result" && session.view) handlers.onResult?.(session.view)
-      if (ev.event === "error" && session.view) handlers.onError?.(session.view)
-    })
-
-    if (!session.view && session.task?.id) {
-      const task = await getTask(session.task.id)
-      session.task = task
-      if (task.progress.length) session.progress = [...task.progress]
-      if (task.status === "done" || task.status === "error") {
-        session.view = mapTaskToView(task)
-        if (session.view.kind === "result") handlers.onResult?.(session.view)
-        else handlers.onError?.(session.view)
-      }
-    }
-
-    return session
-  }
-
-  async function getTask(id: string): Promise<Task> {
+  async function getTask(id: string, signal?: AbortSignal): Promise<Task> {
     const res = await fetchImpl(joinUrl(baseUrl, `/api/search/${encodeURIComponent(id)}`), {
       headers: { Accept: "application/json" },
+      signal,
     })
     if (!res.ok) {
       const text = await res.text()
-      throw new Error(httpErrorMessage("获取任务失败", res.status, text))
+      throwHttpError("获取任务失败", res.status, text)
     }
     const json: unknown = await res.json()
     const task = asTask(json, null)
@@ -492,18 +679,6 @@ export function createSearchClient(config: SearchClientConfig = {}) {
   }
 
   return { searchStream, attachStream, getTask, listRecent, health }
-}
-
-function httpErrorMessage(prefix: string, status: number, text: string): string {
-  try {
-    const json: unknown = JSON.parse(text)
-    if (json && typeof json === "object" && "error" in json && typeof (json as { error: unknown }).error === "string") {
-      return `${prefix} (${status}): ${(json as { error: string }).error}`
-    }
-  } catch {
-    // not JSON
-  }
-  return `${prefix} (${status}): ${text.slice(0, 200)}`
 }
 
 export const verdictLabels: Record<SearchResult["verdict"], string> = {
