@@ -11,12 +11,14 @@ port: 8338
 # 监听地址（默认 127.0.0.1，只允许本机访问）
 # compose 内网给 agent 用服务名 websearch:8338 访问，必须绑全部接口。
 # 上游环境变量表没有 APP_HOST，不要靠环境变量覆盖此项。
+# 本文件仅给 compose 内网用，禁止当裸金属配置。
 host: "0.0.0.0"
 
 # 业务端点鉴权 token（可选，默认空 = 不鉴权）
 # 配置后访问 /mcp 与 /searxng/search 需携带 Authorization: Bearer <token> 或 X-API-Key: <token>
-# 环境变量: WEBSEARCH_TOKEN
-# auth_token: ""
+# 环境变量 WEBSEARCH_TOKEN 覆盖本项。空值仍可能不鉴权。
+# 须与 compose 注入的 WEBSEARCH_TOKEN、opencode.jsonc 的 Authorization 同时开。
+auth_token: ""
 
 # MCP 无状态 HTTP 模式（默认 false = 会话式）
 # true 时每个 POST 独立处理，无需 initialize 握手与 Mcp-Session-Id 会话，

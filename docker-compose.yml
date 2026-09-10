@@ -39,15 +39,19 @@ services:
       OPENCODE_MODEL: ${OPENCODE_MODEL:-custom/default}
 
       # ── 任务执行(可选)────────────────────────────────────────
-      # TASK_TIMEOUT_MS: 300000
+      # TASK_TIMEOUT_MS: 600000  # 单任务超时,默认 10 分钟
       # MAX_CONCURRENCY: 3
       # SYNC_MAX_WAIT_MS: 1800000
       SQLITE_PATH: /home/node/data/search-agent.sqlite
 
-      # ── API 鉴权(可选)────────────────────────────────────────
-      # API_AUTH_KEY: ${API_AUTH_KEY:-}
+      # ── API 鉴权(可选;空值=未配置,不鉴权)──────────────────────
+      API_AUTH_KEY: ${API_AUTH_KEY:-}
+
+      # ── websearch MCP 鉴权(与 yaml auth_token、opencode.jsonc headers 三处同时开)
+      WEBSEARCH_TOKEN: ${WEBSEARCH_TOKEN:-}
     ports:
-      - "${AGENT_PORT:-8787}:8787"
+      # 默认只绑本机;对外走 nginx(见 deploy/nginx/search-agent.conf)
+      - "127.0.0.1:${AGENT_PORT:-8787}:8787"
     volumes:
       # opencode 会话/缓存(服务重启不清空;便于回看检索 session)
       - ./data/opencode:/home/node/.local/share/opencode
@@ -74,9 +78,8 @@ services:
     restart: unless-stopped
     environment:
       TZ: ${TZ:-Asia/Shanghai}
-      # 若需开启业务端点鉴权,在 .env 设置 WEBSEARCH_TOKEN,
-      # 并同步取消镜像内 opencode.jsonc 中 headers 注释(需重建 agent 镜像)
-      # WEBSEARCH_TOKEN: ${WEBSEARCH_TOKEN:-}
+      # 与 yaml auth_token、agent opencode.jsonc Authorization 三处必须同时开
+      WEBSEARCH_TOKEN: ${WEBSEARCH_TOKEN:-}
     ports:
       # 仅供本机调试;agent 走 compose 内网 websearch:8338,不依赖此映射
       - "127.0.0.1:${WEBSEARCH_PORT:-8338}:8338"
@@ -91,4 +94,3 @@ services:
       timeout: 5s
       retries: 3
       start_period: 10s
-

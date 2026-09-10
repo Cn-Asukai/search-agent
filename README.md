@@ -26,7 +26,8 @@
 4. **websearch-mcpserver**(联网搜索,必填):
    - 从 [Releases](https://github.com/daidaiJ/websearch-mcpserver/releases) 下载 Windows 版;
    - 运行 `websearch-mcpserver.exe start`(默认监听 `127.0.0.1:8338`,零 API key 即可用百度 + Bing + DuckDuckGo);
-   - 若你在它的 `websearch.config.yaml` 里配置了 `auth_token`:设置环境变量 `WEBSEARCH_TOKEN`,并取消 `opencode.jsonc` 中 `mcp.websearch.headers` 的注释。
+   - 本仓库 [`websearch.config.yaml`](websearch.config.yaml) 仅给 Docker compose 内网用(`host: 0.0.0.0`),禁止当裸金属配置。
+   - 启用 `WEBSEARCH_TOKEN` 时三处必须同时开:`.env` / compose 注入、`websearch.config.yaml` 的 `auth_token`、`opencode.jsonc` 的 `Authorization: Bearer`。空 token 仍可能不鉴权。
 
 ## 启动
 
@@ -88,7 +89,7 @@ curl http://localhost:8787/api/health
 
 ### 正式 Docker 部署(推荐)
 
-基础 compose 清单只拉取远程镜像并部署：**agent 服务**(HTTP `:8787`，镜像 `ghcr.io/cn-asukai/search-agent`，多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`，镜像 `ghcr.io/daidaij/websearch-mcpserver`)。不叠加 `docker-compose.dev.yml` 时，以下命令始终使用已发布的 GHCR agent 镜像。
+基础 compose 清单只拉取远程镜像并部署：**agent 服务**(HTTP `:8787`，镜像 `ghcr.io/cn-asukai/search-agent`，多架构 `linux/amd64` + `linux/arm64`)+ **websearch MCP 服务**(内网 `:8338`，镜像 `ghcr.io/daidaij/websearch-mcpserver`)。不叠加 `docker-compose.dev.yml` 时，以下命令始终使用已发布的 GHCR agent 镜像。compose 默认把 agent 端口绑在 `127.0.0.1:${AGENT_PORT:-8787}`，只对本机可达；对外走 [`deploy/nginx/search-agent.conf`](deploy/nginx/search-agent.conf)。容器内仍 `HOST=0.0.0.0`。未配置 `API_AUTH_KEY` 时服务仍会监听（空值=不鉴权）。
 
 ```bash
 # 1. 准备环境变量(必填:自定义网关)
@@ -107,7 +108,8 @@ curl http://localhost:8787/api/health
 要点:
 
 - **模型凭据**:镜像内不执行 `opencode auth login`。在 `.env` 填 `LLM_BASE_URL`、`LLM_API_KEY`、`LLM_MODEL` 即可对接任意 OpenAI 兼容网关,不绑定厂商或具体模型。Anthropic 原生协议把 [`opencode.jsonc`](opencode.jsonc) 里的 `npm` 改成 `@ai-sdk/anthropic` 后重建 agent 镜像。
-- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
+- **端口**:compose 默认映射 `127.0.0.1:${AGENT_PORT:-8787}:8787`，只对本机可达。对外走 [`deploy/nginx/search-agent.conf`](deploy/nginx/search-agent.conf)。容器内 `HOST=0.0.0.0` 不变；未配置 `API_AUTH_KEY` 时服务仍监听（空值=不鉴权）。
+- **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。**这份 yaml 仅 compose 内网用,禁止当裸金属配置。** `WEBSEARCH_TOKEN` 由 compose 注入,与 yaml `auth_token`、`opencode.jsonc` 的 `Authorization` 三处必须同时开;空 token 仍可能不鉴权。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
 - **数据持久化**:全部落到仓库根目录 `data/`(已 gitignore):任务 SQLite 在 `data/search-agent.sqlite`(`SQLITE_PATH=/home/node/data/search-agent.sqlite`),opencode 会话在 `data/opencode/`,websearch 搜索缓存在 `data/websearch/`。`docker compose down` / `down -v` 都不会删宿主机 `data/`。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
 - 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
@@ -127,7 +129,7 @@ git push origin HEAD --follow-tags
 
 `patch` / `minor` / `major` 相对的是 **当前 `package.json` 的 version**。若它落后于已有 git tag,第一次对齐用绝对版本(例如现为 `0.1.0`、tag 已到 `v0.2.4` 时用 `npm version 0.2.5`)。
 
-`/api/health` 的 `version` 来自该 tag(镜像构建注入 `GIT_VERSION`);本地 `npm run dev` 用 `git describe --tags --always --dirty`。`revision` 是完整 commit SHA。`v0.2.5` 会打镜像 `0.2.5` / `0.2` / `v0.2.5`;不含 `-` 的非预发布再打 `latest`。
+`/api/health` 的 `version` 来自该 tag(镜像构建注入 `GIT_VERSION`);本地 `npm run dev` 用 `git describe --tags --always --dirty`。`revision` 是完整 commit SHA。仅 `vX.Y.Z` 发版会构建镜像;`v0.2.5` 会打 `0.2.5` / `0.2` / `v0.2.5`;仅非预发布 semver(不含 `-` 的 `vX.Y.Z`)才会移动 `latest`。
 
 - GHCR:`ghcr.io/cn-asukai/search-agent`
 - CNB:`docker.cnb.cool/longlian.online/search-agent`
@@ -212,7 +214,7 @@ curl -N -X POST http://localhost:8787/api/search \
 | 位置 | 作用 |
 |---|---|
 | `opencode.jsonc` | 自定义网关(`provider.custom`)、MCP 搜索服务(`mcp.websearch`)、agent 定义(`agent.hanhua-search`) |
-| `websearch.config.yaml` | websearch-mcpserver 配置(compose 挂载为容器 `/app/config.yaml`;已显式 `baidu.web_enabled: true`) |
+| `websearch.config.yaml` | websearch-mcpserver 配置(compose 挂载为容器 `/app/config.yaml`;仅 compose 内网,禁止裸金属;已显式 `host: 0.0.0.0` 与 `baidu.web_enabled: true`) |
 | `prompts/hanhua-search.md` | 检索 agent 的系统提示词(检索策略、判定标准、反编造要求) |
 | `.env`(参考 `.env.example`) | 模型网关、端口、并发/超时、鉴权、WEBSEARCH_TOKEN |
 
