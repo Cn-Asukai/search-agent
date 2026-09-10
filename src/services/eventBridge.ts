@@ -137,6 +137,7 @@ export async function runNativeLoop(
       if (ready && !signaledReady) {
         signaledReady = true
         Effect.runSync(Deferred.succeed(ready, undefined))
+        console.log(`[event-bridge] 已订阅 opencode 事件流`)
       }
       for await (const event of subscription.stream) {
         if (signal?.aborted) return
