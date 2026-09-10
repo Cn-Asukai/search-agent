@@ -28,6 +28,37 @@ test("websearch listens on all interfaces, not loopback-only", () => {
   assert.notEqual(value, "localhost")
 })
 
+test("websearch token contract is enabled in yaml, compose, and opencode", () => {
+  const yaml = uncommentedLines(readRepo("websearch.config.yaml")).join("\n")
+  assert.match(yaml, /^\s*auth_token:/m)
+
+  const compose = uncommentedLines(readRepo("docker-compose.yml")).join("\n")
+  assert.match(compose, /WEBSEARCH_TOKEN:\s*\$\{WEBSEARCH_TOKEN/)
+
+  const jsonc = uncommentedLines(readRepo("opencode.jsonc")).join("\n")
+  assert.match(jsonc, /Authorization["']?\s*:\s*["']Bearer/)
+  assert.match(jsonc, /WEBSEARCH_TOKEN/)
+})
+
+test("docs require compose-only yaml and three-way websearch token", () => {
+  const readme = readRepo("README.md")
+  assert.match(readme, /禁止当裸金属/)
+  assert.match(readme, /WEBSEARCH_TOKEN/)
+  assert.match(readme, /三处/)
+})
+
+test("compose binds agent HTTP to loopback", () => {
+  const compose = uncommentedLines(readRepo("docker-compose.yml")).join("\n")
+  assert.match(compose, /127\.0\.0\.1:\$\{AGENT_PORT:-8787\}:8787/)
+})
+
+test("production image compiles with tsc and runs node dist", () => {
+  const dockerfile = uncommentedLines(readRepo("Dockerfile")).join("\n")
+  assert.match(dockerfile, /tsc -p tsconfig\.build\.json/)
+  assert.match(dockerfile, /npm ci --omit=dev/)
+  assert.match(dockerfile, /CMD \["node", "dist\/index\.js"\]/)
+})
+
 test("compose does not use APP_HOST as MCP listen override", () => {
   const compose = readRepo("docker-compose.yml")
   const assigned = uncommentedLines(compose).filter((line) => /^\s*APP_HOST\s*:/.test(line))

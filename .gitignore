@@ -2,6 +2,7 @@ node_modules/
 .env
 *.tmp.json
 web/dist/
+/dist/
 /data/
 *.sqlite
 *.sqlite-wal
