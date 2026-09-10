@@ -21,6 +21,7 @@ test("resolveAppVersion returns unknown when env and git are missing", () => {
   assert.equal(resolveAppVersion("", () => null), "unknown")
 })
 
+
 test("readRevision treats missing and blank env as null", () => {
   assert.equal(readRevision(undefined), null)
   assert.equal(readRevision(""), null)

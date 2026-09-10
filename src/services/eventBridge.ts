@@ -1,4 +1,4 @@
-import { Context, Effect, Layer, PubSub, type Scope } from "effect"
+import { Context, Deferred, Effect, Layer, PubSub, type Scope } from "effect"
 import type { OpencodeClient } from "@opencode-ai/sdk/v2"
 
 // ─────────────────────────────────────────────────────────────
@@ -106,15 +106,17 @@ export const EventBridgeLive: Layer.Layer<EventBridge> = Layer.effect(
  * 事件循环:连接 opencode 的 SSE 事件流,把每个事件发布到 PubSub。
  * 断线重连在 runNativeLoop 内完成。不能 Effect.sync + Effect.forever:
  * sync 立刻成功,forever 会每 tick 再开一条 SSE,把本机套接字打满。
+ * ready 在首次 client.event.subscribe() 成功后完成,供 HTTP 层等待。
  */
 export function eventLoop(
   client: OpencodeClient,
   events: PubSub.PubSub<OpencodeEvent>,
+  ready?: Deferred.Deferred<void>,
 ): Effect.Effect<void, never, Scope.Scope> {
   return Effect.acquireRelease(
     Effect.sync(() => {
       const ac = new AbortController()
-      void runNativeLoop(client, events, ac.signal)
+      void runNativeLoop(client, events, ac.signal, ready)
       return ac
     }),
     (ac) => Effect.sync(() => ac.abort()),
@@ -126,10 +128,16 @@ export async function runNativeLoop(
   client: OpencodeClient,
   events: PubSub.PubSub<OpencodeEvent>,
   signal?: AbortSignal,
+  ready?: Deferred.Deferred<void>,
 ): Promise<void> {
+  let signaledReady = false
   while (!signal?.aborted) {
     try {
       const subscription = await client.event.subscribe()
+      if (ready && !signaledReady) {
+        signaledReady = true
+        Effect.runSync(Deferred.succeed(ready, undefined))
+      }
       for await (const event of subscription.stream) {
         if (signal?.aborted) return
         // 必须等 publish 完成再读下一条,否则终态 message.updated 与 session.idle 可能乱序
