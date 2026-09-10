@@ -35,21 +35,41 @@ export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = Layer.effec
   // acquireRelease 在 Layer 释放时调用 server.close() → SDK stop(proc)。
   const config = yield* AppConfig
   const server = yield* Effect.acquireRelease(
-    Effect.tryPromise(() =>
-      createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
-    ).pipe(
-      Effect.mapError((err) => new Error(hintEmbeddedError(err))),
-    ),
+    Effect.tryPromise({
+      try: () =>
+        createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
+      catch: (err) => new Error(hintEmbeddedError(err)),
+    }),
     (acquired) => Effect.sync(() => acquired.close()),
   )
   const client = createOpencodeClient({ baseUrl: server.url })
   return { client, url: server.url, close: () => server.close() }
 }))
 
-function hintEmbeddedError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err)
+const GENERIC_TRY = /^An error occurred in Effect\.try(?:Promise)?$/
+
+function causeMessage(err: unknown, depth = 0): string {
+  if (depth > 6) return ""
+  if (err instanceof Error) {
+    const nested = err.cause !== undefined ? causeMessage(err.cause, depth + 1) : ""
+    if (!err.message || GENERIC_TRY.test(err.message)) return nested || err.message
+    if (nested && !err.message.includes(nested)) return `${err.message}: ${nested}`
+    return err.message
+  }
+  if (err === undefined || err === null) return ""
+  return String(err)
+}
+
+/** 把 spawn / serve 失败转成中文提示;会解开 Effect.tryPromise 的 UnknownError.cause */
+export function hintEmbeddedError(err: unknown): string {
+  const message = causeMessage(err) || String(err)
   if (/ENOENT|not found|spawn/i.test(message)) {
     return `未找到 opencode CLI。请先安装:npm install -g opencode-ai(或参考 https://opencode.ai/docs/ 安装)。原始错误:${message}`
+  }
+  if (/EACCES|permission denied/i.test(message)) {
+    return (
+      `opencode 数据目录不可写。容器以 node(uid 1000) 运行,请将 compose 挂载目录 chown 为 1000:1000。原始错误:${message}`
+    )
   }
   if (/exited with code/i.test(message)) {
     return (
