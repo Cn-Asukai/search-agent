@@ -3,7 +3,7 @@
 # Official workflow from https://open-codereview.ai/docs/cicd
 # (examples/github_actions/ocr-review.yml).
 #
-# Automatic review on pull_request_target (opened/synchronize/reopened)
+# Automatic review on pull_request (opened/synchronize/reopened)
 # and on-demand re-review via comments starting with '/open-code-review'
 # or '@open-code-review'.
 #
@@ -35,7 +35,7 @@ concurrency:
   group: >-
     ${{
       (
-        github.event_name == 'pull_request_target'
+        github.event_name == 'pull_request'
         || (
           github.event_name == 'issue_comment'
           && github.event.issue.pull_request
@@ -57,10 +57,9 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  # Use pull_request_target instead of pull_request so that secrets are
-  # available even for PRs from forks. This is safe because the reusable
-  # action only reads the diff and does not execute any code from the PR.
-  pull_request_target:
+  # pull_request (not pull_request_target): fork PRs do not receive repository
+  # secrets. This workflow never checkouts PR HEAD; OCR reads the diff via API.
+  pull_request:
     types: [opened, synchronize, reopened]
   issue_comment:
     types: [created]
@@ -79,7 +78,7 @@ jobs:
     # issue_comment triggers are further gated on author_association so only
     # MEMBER/OWNER/COLLABORATOR users can spend LLM quota via re-review.
     if: |
-      github.event_name == 'pull_request_target'
+      github.event_name == 'pull_request'
       || (
         github.event_name == 'issue_comment'
         && github.event.issue.pull_request
@@ -98,7 +97,7 @@ jobs:
       - name: Get PR context
         id: pr-context
         if: github.event_name == 'issue_comment'
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             // For issue_comment events, resolve PR base/head so the action
@@ -133,6 +132,6 @@ jobs:
           # title resolved in the previous step.
           background: ${{ steps.pr-context.outputs.title || github.event.pull_request.title }}
           # For issue_comment triggers, pass the resolved refs; for
-          # pull_request_target the action resolves them from the event.
+          # pull_request the action resolves them from the event.
           base_ref: ${{ steps.pr-context.outputs.base_ref }}
           head_sha: ${{ steps.pr-context.outputs.head_sha }}
