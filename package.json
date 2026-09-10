@@ -1,6 +1,6 @@
 {
   "name": "search-agent",
-  "version": "0.2.8",
+  "version": "0.2.9",
   "description": "服务端汉化版本搜索 agent:基于 opencode SDK 驱动 LLM agent 联网检索作品的官方中文/民间汉化信息",
   "private": true,
   "type": "module",
