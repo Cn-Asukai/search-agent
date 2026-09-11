@@ -20,7 +20,8 @@ services:
     container_name: search-web
     restart: unless-stopped
     ports:
-      - "${WEB_PORT:-5173}:5173"
+      # 默认只绑本机，与 agent / websearch 一致
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
     volumes:
       # 源码热更新；Linux node_modules 放命名卷，避免 Windows 宿主目录混入
       - ./web:/app

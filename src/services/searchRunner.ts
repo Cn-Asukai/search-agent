@@ -57,18 +57,39 @@ export const SearchRunnerLive: Layer.Layer<
         Effect.map((fiber) => () => Fiber.interrupt(fiber).pipe(Effect.ignore)),
       )
 
-    /** 执行单个任务(入口,不抛异常,结果写回任务表) */
+    const abortThenMarkError = (
+      taskId: string,
+      sessionID: string | undefined,
+      error: string,
+    ) =>
+      Effect.gen(function* () {
+        console.error(`[search-runner] 任务失败 task=${taskId}${sessionID ? ` session=${sessionID}` : ""}: ${error}`)
+        if (sessionID) {
+          yield* ops.abortSession(sessionID).pipe(
+            Effect.catch((err) =>
+              Effect.sync(() => {
+                console.warn(`[search-runner] 中止会话失败 task=${taskId} session=${sessionID}:`, err)
+              }),
+            ),
+          )
+        }
+        yield* tasks.update(taskId, { status: "error", error, endedAt: Date.now() })
+      })
+
+    /** 执行单个任务(入口,结果写回任务表;已有 session 的失败会 abort 后再 error) */
     const runTask = (taskId: string): Effect.Effect<void, Error> =>
       Effect.gen(function* () {
         const taskOpt = yield* tasks.get(taskId)
         if (Option.isNone(taskOpt)) return
         const task = Option.getOrThrow(taskOpt)
+        console.log(`[search-runner] 开始 task=${taskId} type=${task.type} query=${task.query}`)
 
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
         yield* tasks.appendProgress(taskId, { kind: "status", message: "任务开始,正在创建检索会话" })
 
         const createStarted = Date.now()
         const sessionID = yield* ops.createSession
+        console.log(`[search-runner] 会话已创建 task=${taskId} session=${sessionID}`)
         yield* tasks.update(taskId, { sessionId: sessionID })
         yield* tasks.appendTraceStep(sessionID, {
           kind: "call",
@@ -82,70 +103,79 @@ export const SearchRunnerLive: Layer.Layer<
           message: "会话已创建,正在分析并联网检索",
         })
 
-        // 订阅该会话的工具调用事件 → 进度
-        const stopWatch = yield* watchSession(sessionID, taskId)
-        // 终态订阅与 prompt 同时启动,避免提交后再订而漏掉终态。
-        // wait 成功或超时即收尾;submit 失败则立刻失败。不要 Effect.all 等 promptAsync
-        // 一直不返回,否则 wait 超时也无法写回任务。
-        const outcome = yield* waitSessionSettled(bridge.events, sessionID, config.taskTimeout).pipe(
-          Effect.race(
-            ops.submitSearch(sessionID, {
-              query: task.query,
-              type: task.type,
-              stream: false,
-            }).pipe(Effect.andThen(Effect.never)),
+        yield* Effect.gen(function* () {
+          const stopWatch = yield* watchSession(sessionID, taskId)
+          // 终态订阅与 prompt 同时启动,避免提交后再订而漏掉终态。
+          // wait 成功或超时即收尾;submit 失败则立刻失败。不要 Effect.all 等 promptAsync
+          // 一直不返回,否则 wait 超时也无法写回任务。
+          // ensuring(stopWatch):submit 失败也 interrupt watch。
+          const outcome = yield* waitSessionSettled(bridge.events, sessionID, config.taskTimeout).pipe(
+            Effect.raceFirst(
+              ops.submitSearch(sessionID, {
+                query: task.query,
+                type: task.type,
+                stream: false,
+              }).pipe(Effect.andThen(Effect.never)),
+            ),
+            Effect.ensuring(stopWatch()),
+          )
+
+          const info = outcome.finalInfo as AssistantMessage | undefined
+          let result: SearchResult | null = resolveSearchResult({
+            info,
+            structuredFromTool: outcome.structuredFromTool,
+            parts: outcome.textParts,
+          })
+
+          // 超时/失败路径不再拉 messages,避免会话很大时卡住写不回 error
+          if (!result && outcome.ok) {
+            const latest = yield* ops.getLatestAssistant(sessionID).pipe(Effect.option)
+            if (Option.isSome(latest)) {
+              result = resolveSearchResult({
+                info: latest.value.info,
+                structuredFromTool: outcome.structuredFromTool,
+                parts: latest.value.parts,
+              })
+            }
+          }
+
+          if (result) {
+            console.log(`[search-runner] 完成 task=${taskId} session=${sessionID} verdict=${result.verdict}`)
+            yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
+            yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
+            return
+          }
+
+          if (!outcome.ok) {
+            yield* abortThenMarkError(taskId, sessionID, outcome.error)
+            return
+          }
+          if (info?.error) {
+            const message = describeMessageError(info.error)
+            console.error(`[search-runner] 模型错误 task=${taskId} session=${sessionID}: ${message}`)
+            yield* tasks.update(taskId, {
+              status: "error",
+              error: message,
+              endedAt: Date.now(),
+            })
+            return
+          }
+
+          console.error(`[search-runner] 无结构化结果 task=${taskId} session=${sessionID}`)
+          yield* tasks.update(taskId, {
+            status: "error",
+            error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
+            endedAt: Date.now(),
+          })
+        }).pipe(
+          Effect.catch((err) =>
+            abortThenMarkError(
+              taskId,
+              sessionID,
+              err instanceof Error ? err.message : String(err),
+            ),
           ),
         )
-        yield* stopWatch()
-
-        const info = outcome.finalInfo as AssistantMessage | undefined
-        let result: SearchResult | null = resolveSearchResult({
-          info,
-          structuredFromTool: outcome.structuredFromTool,
-          parts: outcome.textParts,
-        })
-
-        // 超时/失败路径不再拉 messages,避免会话很大时卡住写不回 error
-        if (!result && outcome.ok) {
-          const latest = yield* ops.getLatestAssistant(sessionID).pipe(Effect.option)
-          if (Option.isSome(latest)) {
-            result = resolveSearchResult({
-              info: latest.value.info,
-              structuredFromTool: outcome.structuredFromTool,
-              parts: latest.value.parts,
-            })
-          }
-        }
-
-        if (result) {
-          yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
-          yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
-          return
-        }
-
-        if (!outcome.ok) {
-          yield* ops.abortSession(sessionID).pipe(Effect.ignore)
-          yield* tasks.update(taskId, {
-            status: "error",
-            error: outcome.error,
-            endedAt: Date.now(),
-          })
-          return
-        }
-        if (info?.error) {
-          yield* tasks.update(taskId, {
-            status: "error",
-            error: describeMessageError(info.error),
-            endedAt: Date.now(),
-          })
-          return
-        }
-
-        yield* tasks.update(taskId, {
-          status: "error",
-          error: "模型未能返回符合 Schema 的结构化结果(可重试,或检查模型是否支持结构化输出)",
-          endedAt: Date.now(),
-        })
       })
 
     const launch = (taskId: string) =>
@@ -155,10 +185,14 @@ export const SearchRunnerLive: Layer.Layer<
         yield* tasks.semaphore.take(1)
         yield* runTask(taskId).pipe(
           Effect.catch((err) =>
-            tasks.update(taskId, {
-              status: "error",
-              error: err instanceof Error ? err.message : String(err),
-              endedAt: Date.now(),
+            Effect.gen(function* () {
+              const current = yield* tasks.get(taskId)
+              const sessionId = Option.isSome(current) ? current.value.sessionId : undefined
+              yield* abortThenMarkError(
+                taskId,
+                sessionId,
+                err instanceof Error ? err.message : String(err),
+              )
             }),
           ),
           Effect.ensuring(tasks.semaphore.release(1)),

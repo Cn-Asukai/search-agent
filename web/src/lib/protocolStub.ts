@@ -6,7 +6,7 @@ import { createServer, type IncomingMessage, type Server, type ServerResponse } 
 import type { AddressInfo } from "node:net"
 import type { ProgressEntry, SearchResult, Task, WorkType } from "./searchClient.ts"
 
-export type StubMode = "result" | "error"
+export type StubMode = "result" | "error" | "running"
 
 export type ProtocolStub = {
   server: Server
@@ -80,6 +80,25 @@ async function readJson(req: IncomingMessage): Promise<unknown> {
   return raw ? JSON.parse(raw) : {}
 }
 
+function writeSseHeaders(res: ServerResponse): void {
+  res.writeHead(200, {
+    "Content-Type": "text/event-stream",
+    "Cache-Control": "no-cache",
+    Connection: "keep-alive",
+    "X-Accel-Buffering": "no",
+  })
+}
+
+function completeRunningTask(task: Task): Task {
+  return {
+    ...task,
+    status: "done",
+    updatedAt: Date.now(),
+    endedAt: Date.now(),
+    result: sampleResult(task.query),
+  }
+}
+
 export function startProtocolStub(port = 0): Promise<ProtocolStub> {
   let mode: StubMode = "result"
   let lastSearchBody: unknown
@@ -149,15 +168,16 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
       const accept = req.headers.accept ?? ""
       const stream = accept.includes("text/event-stream") || url.searchParams.get("stream") === "true"
       if (stream) {
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-          "X-Accel-Buffering": "no",
-        })
+        writeSseHeaders(res)
+        if (mode === "running" && (lastTask.status === "queued" || lastTask.status === "running")) {
+          lastTask = completeRunningTask(lastTask)
+        }
         res.write(encodeSse("task", lastTask))
         if (lastTask.status === "error") res.write(encodeSse("error", lastTask))
         else if (lastTask.status === "done") res.write(encodeSse("result", lastTask))
+        else {
+          for (const entry of lastTask.progress) res.write(encodeSse("progress", entry))
+        }
         res.end()
         return
       }
@@ -190,6 +210,8 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
             endedAt: Date.now(),
             error: "检索超时",
           }
+        } else if (mode === "running") {
+          lastTask = running
         } else {
           lastTask = {
             ...running,
@@ -199,14 +221,13 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
           }
         }
 
-        res.writeHead(200, {
-          "Content-Type": "text/event-stream",
-          "Cache-Control": "no-cache",
-          Connection: "keep-alive",
-          "X-Accel-Buffering": "no",
-        })
+        writeSseHeaders(res)
         res.write(encodeSse("task", running))
         res.write(encodeSse("progress", progress))
+        if (mode === "running") {
+          res.end()
+          return
+        }
         if (mode === "error") res.write(encodeSse("error", lastTask))
         else res.write(encodeSse("result", lastTask))
         res.end()
@@ -218,31 +239,28 @@ export function startProtocolStub(port = 0): Promise<ProtocolStub> {
     res.end(JSON.stringify({ error: "not found" }))
   })
 
-  return new Promise((resolve, reject) => {
-    server.once("error", reject)
-    server.listen(port, "127.0.0.1", () => {
-      const addr = server.address() as AddressInfo
-      const stub: ProtocolStub = {
-        server,
-        baseUrl: `http://127.0.0.1:${addr.port}`,
-        get lastSearchBody() {
-          return lastSearchBody
-        },
-        get lastRequest() {
-          return lastRequest
-        },
-        setMode(next) {
-          mode = next
-        },
-        close() {
-          return new Promise((resClose, rejClose) => {
-            server.close((err) => (err ? rejClose(err) : resClose()))
-          })
-        },
-      }
-      resolve(stub)
+  const { promise, resolve, reject } = Promise.withResolvers<ProtocolStub>()
+  server.once("error", reject)
+  server.listen(port, "127.0.0.1", () => {
+    const addr = server.address() as AddressInfo
+    resolve({
+      server,
+      baseUrl: `http://127.0.0.1:${addr.port}`,
+      get lastSearchBody() {
+        return lastSearchBody
+      },
+      get lastRequest() {
+        return lastRequest
+      },
+      setMode(next) {
+        mode = next
+      },
+      close() {
+        const closing = Promise.withResolvers<void>()
+        server.close((err) => (err ? closing.reject(err) : closing.resolve()))
+        return closing.promise
+      },
     })
   })
+  return promise
 }
-
-

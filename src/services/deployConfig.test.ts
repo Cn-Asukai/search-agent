@@ -28,6 +28,37 @@ test("websearch listens on all interfaces, not loopback-only", () => {
   assert.notEqual(value, "localhost")
 })
 
+test("websearch token contract is enabled in yaml, compose, and opencode", () => {
+  const yaml = uncommentedLines(readRepo("websearch.config.yaml")).join("\n")
+  assert.match(yaml, /^\s*auth_token:/m)
+
+  const compose = uncommentedLines(readRepo("docker-compose.yml")).join("\n")
+  assert.match(compose, /WEBSEARCH_TOKEN:\s*\$\{WEBSEARCH_TOKEN/)
+
+  const jsonc = uncommentedLines(readRepo("opencode.jsonc")).join("\n")
+  assert.match(jsonc, /Authorization["']?\s*:\s*["']Bearer/)
+  assert.match(jsonc, /WEBSEARCH_TOKEN/)
+})
+
+test("docs require compose-only yaml and three-way websearch token", () => {
+  const readme = readRepo("README.md")
+  assert.match(readme, /禁止当裸金属/)
+  assert.match(readme, /WEBSEARCH_TOKEN/)
+  assert.match(readme, /三处/)
+})
+
+test("compose binds agent HTTP to loopback", () => {
+  const compose = uncommentedLines(readRepo("docker-compose.yml")).join("\n")
+  assert.match(compose, /127\.0\.0\.1:\$\{AGENT_PORT:-8787\}:8787/)
+})
+
+test("production image compiles with tsc and runs node dist", () => {
+  const dockerfile = uncommentedLines(readRepo("Dockerfile")).join("\n")
+  assert.match(dockerfile, /tsc -p tsconfig\.build\.json/)
+  assert.match(dockerfile, /npm ci --omit=dev/)
+  assert.match(dockerfile, /CMD \["node", "dist\/index\.js"\]/)
+})
+
 test("compose does not use APP_HOST as MCP listen override", () => {
   const compose = readRepo("docker-compose.yml")
   const assigned = uncommentedLines(compose).filter((line) => /^\s*APP_HOST\s*:/.test(line))
@@ -95,6 +126,7 @@ test("dev compose builds local web frontend from web/", () => {
   assert.match(compose, /VITE_API_PROXY_TARGET:\s*http:\/\/agent:8787/)
   assert.match(compose, /\.\/web:\/app/)
   assert.match(compose, /web_node_modules:\/app\/node_modules/)
+  assert.match(compose, /127\.0\.0\.1:\$\{WEB_PORT:-5173\}:5173/)
 })
 
 test("vite API proxy can target compose agent DNS", () => {
@@ -109,4 +141,25 @@ test("web Dockerfile installs lockfile deps and runs Vite", () => {
   assert.match(dockerfile, /npm ci/)
   assert.match(dockerfile, /npm", "run", "dev"/)
   assert.match(dockerfile, /--host", "0\.0\.0\.0"/)
+})
+
+test("PR test workflow triggers on pull_request opened/synchronize/reopened", () => {
+  const workflow = readRepo(".github/workflows/test.yml")
+  assert.match(workflow, /^on:\s*$/m)
+  assert.match(workflow, /^\s*pull_request:\s*$/m)
+  assert.match(workflow, /types:\s*\[opened,\s*synchronize,\s*reopened\]/)
+  assert.doesNotMatch(workflow, /pull_request_target:/)
+})
+
+test("PR test workflow checks out the PR, installs Node 22.16+, typechecks, and runs all tests", () => {
+  const workflow = readRepo(".github/workflows/test.yml")
+  const active = uncommentedLines(workflow).join("\n")
+  assert.match(active, /persist-credentials:\s*false/)
+  assert.match(active, /node-version:\s*"22\.16"/)
+  assert.match(active, /npm ci/)
+  assert.match(active, /npm ci --prefix web/)
+  assert.match(active, /npm run typecheck/)
+  assert.match(active, /npm test/)
+  assert.match(active, /npm run web:test/)
+  assert.doesNotMatch(active, /secrets\./)
 })

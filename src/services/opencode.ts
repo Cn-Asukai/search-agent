@@ -31,22 +31,37 @@ export class OpenCode extends Context.Service<OpenCode, {
 export const OpenCodeLive: Layer.Layer<OpenCode, Error, AppConfig> = Layer.effect(
   OpenCode
 )(Effect.gen(function* () {
+  // Effect 4 的 Layer.effect 在 Scope 内构建(旧 Layer.scoped 已并入);
+  // acquireRelease 在 Layer 释放时调用 server.close() → SDK stop(proc)。
   const config = yield* AppConfig
-  return yield* Effect.tryPromise(() =>
-    createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
-  ).pipe(
-    Effect.mapError((err) => new Error(hintEmbeddedError(err))),
-    Effect.map((server) => {
-      const client = createOpencodeClient({ baseUrl: server.url })
-      return { client, url: server.url, close: () => server.close() }
+  const server = yield* Effect.acquireRelease(
+    Effect.tryPromise({
+      try: () =>
+        createOpencodeServer({ hostname: config.opencodeHostname, port: config.opencodePort, timeout: 60_000 }),
+      catch: (err) => new Error(hintEmbeddedError(err)),
     }),
+    (acquired) => Effect.sync(() => acquired.close()),
   )
+  const client = createOpencodeClient({ baseUrl: server.url })
+  return { client, url: server.url, close: () => server.close() }
 }))
 
-function hintEmbeddedError(err: unknown): string {
-  const message = err instanceof Error ? err.message : String(err)
+/** 把 spawn / serve 失败转成中文提示;解开 Effect.tryPromise 的 UnknownError.cause */
+export function hintEmbeddedError(err: unknown): string {
+  let current: unknown = err
+  while (
+    current instanceof Error &&
+    /^An error occurred in Effect\.try(?:Promise)?$/.test(current.message) &&
+    current.cause !== undefined
+  ) {
+    current = current.cause
+  }
+  const message = current instanceof Error ? current.message : String(current)
   if (/ENOENT|not found|spawn/i.test(message)) {
     return `未找到 opencode CLI。请先安装:npm install -g opencode-ai(或参考 https://opencode.ai/docs/ 安装)。原始错误:${message}`
+  }
+  if (/EACCES|permission denied/i.test(message)) {
+    return `opencode 数据目录不可写。容器以 node(uid 1000) 运行,请将 compose 挂载目录 chown 为 1000:1000。原始错误:${message}`
   }
   if (/exited with code/i.test(message)) {
     return (
@@ -68,7 +83,7 @@ export class OpenCodeOps extends Context.Service<OpenCodeOps, {
   readonly getLatestAssistant: (
     sessionID: string,
   ) => Effect.Effect<{ readonly info: AssistantMessage; readonly parts: readonly unknown[] }, Error>
-  readonly abortSession: (sessionID: string) => Effect.Effect<void>
+  readonly abortSession: (sessionID: string) => Effect.Effect<void, Error>
   readonly health: Effect.Effect<{ ok: boolean; version?: string }>
 }>()("OpenCodeOps") {}
 
@@ -184,21 +199,26 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
           }),
         ),
         Effect.mapError((err) => new Error(`中止会话失败:${err instanceof Error ? err.message : String(err)}`)),
-        Effect.orDie,
-        Effect.ignore,
       )
     }
 
     const health = Effect.tryPromise(() => client.global.health()).pipe(
-      Effect.map((res) =>
-        res.error
-          ? { ok: false }
-          : {
-              ok: true,
-              version: (res.data as { version?: string } | undefined)?.version,
-            },
+      Effect.map((res) => {
+        if (res.error) {
+          console.warn("[opencode] health 返回错误:", res.error)
+          return { ok: false }
+        }
+        return {
+          ok: true,
+          version: (res.data as { version?: string } | undefined)?.version,
+        }
+      }),
+      Effect.catch((err) =>
+        Effect.sync(() => {
+          console.warn("[opencode] health 检查失败:", err)
+          return { ok: false }
+        }),
       ),
-      Effect.catch(() => Effect.succeed({ ok: false })),
     )
 
     return {

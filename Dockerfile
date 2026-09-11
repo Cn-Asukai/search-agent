@@ -8,7 +8,7 @@
 # 推送: docker push ghcr.io/cn-asukai/search-agent:latest
 #
 # 服务启动时自动 spawn `opencode serve`,因此镜像内同时包含:
-#   - Node.js 运行时代码(src/)
+#   - Node.js 运行时代码(dist/)
 #   - opencode CLI(npm 包 opencode-ai,postinstall 拉取平台二进制)
 #   - 项目 opencode.jsonc(模型/MCP/agent)
 
@@ -23,9 +23,9 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-# 编译用 devDependencies(tsx/tsc)已随 npm ci 安装,直接复制源码即可运行
-COPY tsconfig.json ./
+COPY tsconfig.json tsconfig.build.json ./
 COPY src ./src
+RUN npx tsc -p tsconfig.build.json
 
 # ── 运行时阶段 ──────────────────────────────────────────────
 FROM node:24-bookworm-slim
@@ -43,12 +43,10 @@ ENV GIT_REVISION=${GIT_REVISION}
 ARG GIT_VERSION=
 ENV GIT_VERSION=${GIT_VERSION}
 
-# 应用代码 + 编译产物(tsx 直接跑 TS 源码)
-# package.json 必需:其 "type": "module" 决定 .ts 按 ESM 解析(sdk 的 exports 只有 import 条件)
-COPY --from=build /app/package.json ./package.json
-COPY --from=build /app/node_modules ./node_modules
-COPY --from=build /app/src ./src
-COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
+
+COPY --from=build /app/dist ./dist
 
 # 业务静态资源:opencode.jsonc(模型/MCP/agent 定义)与 prompts/
 COPY opencode.jsonc ./opencode.jsonc
@@ -69,4 +67,4 @@ EXPOSE 8787
 
 USER node
 
-CMD ["npx", "tsx", "src/index.ts"]
+CMD ["node", "dist/index.js"]

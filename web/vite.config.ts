@@ -10,6 +10,8 @@ const apiProxy = {
   "/api": {
     target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8787",
     changeOrigin: true,
+    timeout: 3_600_000,
+    proxyTimeout: 3_600_000,
   },
 }
 
@@ -33,6 +35,6 @@ export default defineConfig({
   },
   test: {
     environment: "node",
-    include: ["src/**/*.test.ts"],
+    include: ["src/**/*.test.ts", "src/**/*.test.tsx"],
   },
 })

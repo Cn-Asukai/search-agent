@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { decodeUrlForDisplay, decodeUrlsInText } from "./displayUrl.ts"
+import { decodeUrlForDisplay, decodeUrlsInText, isHttpUrl } from "./displayUrl.ts"
 
 describe("decodeUrlForDisplay", () => {
   it("decodes percent-encoded CJK query strings", () => {
@@ -33,5 +33,30 @@ describe("decodeUrlsInText", () => {
     expect(decodeUrlsInText("读取网页完成:https://example.com/a%20b")).toBe(
       "读取网页完成:https://example.com/a b",
     )
+  })
+
+  it("decodes nested percent-encoding and keeps trailing punctuation", () => {
+    const doubleEncoded = encodeURIComponent("https://example.com/转生")
+    expect(decodeUrlForDisplay(doubleEncoded)).toBe("https://example.com/转生")
+    expect(decodeUrlsInText("见 https://example.com/a%20b。")).toBe("见 https://example.com/a b。")
+    expect(decodeUrlsInText("见 https://example.com/a%20b,")).toBe("见 https://example.com/a b,")
+  })
+})
+
+describe("isHttpUrl", () => {
+  it("accepts absolute http and https", () => {
+    expect(isHttpUrl("https://example.com/path")).toBe(true)
+    expect(isHttpUrl("http://example.com")).toBe(true)
+    expect(isHttpUrl("HTTPS://EXAMPLE.COM/a")).toBe(true)
+  })
+
+  it("rejects javascript, data, and protocol-relative", () => {
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false)
+    expect(isHttpUrl("data:text/html,hi")).toBe(false)
+    expect(isHttpUrl("//evil.example/path")).toBe(false)
+    expect(isHttpUrl("ftp://example.com/file")).toBe(false)
+    expect(isHttpUrl("")).toBe(false)
+    expect(isHttpUrl("not a url")).toBe(false)
+    expect(isHttpUrl("/relative/path")).toBe(false)
   })
 })
