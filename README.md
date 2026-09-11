@@ -70,21 +70,22 @@ npm run web:test
 
 ### 本地 Docker 开发
 
-开发覆盖文件让 `agent` 从当前工作树构建，本地镜像标签为 `search-agent:dev`；`websearch` 仍从 `ghcr.io/daidaij/websearch-mcpserver` 拉取。它不修改正式部署使用的基础清单。
+开发覆盖文件让 `agent` 与前端 `web` 从当前工作树构建，本地镜像标签为 `search-agent:dev` / `search-web:dev`；`websearch` 仍从 `ghcr.io/daidaij/websearch-mcpserver` 拉取。它不修改正式部署使用的基础清单。
 
 ```bash
 # 1. 准备环境变量(必填:自定义网关)
 cp .env.example .env
 #    编辑 .env,填入 LLM_BASE_URL / LLM_API_KEY / LLM_MODEL
 
-# 2. 合并开发覆盖文件，构建本地 agent 并等待两个服务健康
+# 2. 合并开发覆盖文件，构建本地 agent/web 并等待三个服务健康
 docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d --build --wait
 
 # 3. 验证
 curl http://localhost:8787/api/health
+# 浏览器打开 http://127.0.0.1:5173
 ```
 
-源码改动后重复第 2 步即可重新构建 `search-agent:dev`。首次构建可能拉取 `node:24-bookworm-slim`；这是 Dockerfile 的基础镜像前置条件，不是拉取 `ghcr.io/cn-asukai/search-agent`。`websearch` 仍会按其远程拉取策略获取镜像。
+`web/` 源码绑定挂载，改完刷新即可（Windows 下容器开了 polling）。agent 源码改动后重复第 2 步重建 `search-agent:dev`。前端依赖变更后需重建 `search-web:dev` 并去掉旧的 `web_node_modules` 卷再 up。首次构建可能拉取 `node:24-bookworm-slim`；这是 Dockerfile 的基础镜像前置条件，不是拉取 `ghcr.io/cn-asukai/search-agent`。`websearch` 仍会按其远程拉取策略获取镜像。
 
 ### 正式 Docker 部署(推荐)
 
@@ -110,7 +111,7 @@ curl http://localhost:8787/api/health
 - **websearch**:compose 从 `ghcr.io/daidaij/websearch-mcpserver` 拉取,把仓库根目录 [`websearch.config.yaml`](websearch.config.yaml) 挂到容器 `/app/config.yaml`(已显式 `host: "0.0.0.0"` 与 `baidu.web_enabled: true`)。agent 经 compose 内网服务名 `websearch:8338` 访问 MCP;监听地址写在 YAML 里,不要用 `APP_HOST`。不依赖宿主机上跑的 websearch 进程。镜像暂钉 `platform: linux/amd64`(ARM 主机走 QEMU);上游发 arm64 后去掉。
 - **数据持久化**:全部落到仓库根目录 `data/`(已 gitignore):任务 SQLite 在 `data/search-agent.sqlite`(`SQLITE_PATH=/home/node/data/search-agent.sqlite`),opencode 会话在 `data/opencode/`,websearch 搜索缓存在 `data/websearch/`。`docker compose down` / `down -v` 都不会删宿主机 `data/`。
 - **代理**:内嵌 opencode 首次运行需联网安装 AI SDK provider 包、模型 API 需出网。需要代理时,在 `docker-compose.yml` 的 `agent.environment` 取消 `HTTP(S)_PROXY` 注释(指向 `host.docker.internal:7897` 之类的宿主代理)。
-- 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。
+- 停止:`docker compose down`;看日志:`docker compose logs -f agent websearch`。叠加开发覆盖时再加上 `web`。
 
 本仓库根目录 [`Dockerfile`](Dockerfile) 只构建 agent 镜像(不含 MCP)。Apple Silicon / ARM 主机上 agent 会拉原生 arm64;websearch 仍走 amd64 模拟,直到上游发布 arm64。每次 git push 还会由 `.github/workflows/sync-cnb.yml` 同步到 CNB 仓 [longlian.online/search-agent](https://cnb.cool/longlian.online/search-agent)。发版见下方「发布」。
 
@@ -225,7 +226,7 @@ curl -N -X POST http://localhost:8787/api/search \
 ```
 ├── Dockerfile                # 仅构建 agent 镜像(不含 websearch MCP)
 ├── docker-compose.yml        # 正式部署：仅拉取远程镜像
-├── docker-compose.dev.yml    # 本地开发：覆盖 agent 为本地构建镜像
+├── docker-compose.dev.yml    # 本地开发：本地构建 agent + Vite 前端容器
 ├── websearch.config.yaml     # websearch MCP 配置(挂到容器 /app/config.yaml)
 ├── opencode.jsonc            # opencode 配置:自定义网关 / MCP / agent
 ├── prompts/hanhua-search.md  # 检索 agent 系统提示词
@@ -234,7 +235,7 @@ curl -N -X POST http://localhost:8787/api/search \
 │   ├── env.ts                # 配置(AppConfig)
 │   ├── domain/search.ts      # 领域 Schema
 │   └── services/             # sqlite / opencode / 事件桥 / 任务表 / 检索编排
-├── web/                      # Vite + React + shadcn 前端（代理到 :8787）
+├── web/                      # Vite + React + shadcn 前端（代理到 :8787；含开发 Dockerfile）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
 └── .env.example
 ```
