@@ -119,6 +119,30 @@ test("dev compose forwards git identity as image build args", () => {
   assert.match(compose, /GIT_VERSION:\s*\$\{GIT_VERSION/)
 })
 
+test("dev compose builds local web frontend from web/", () => {
+  const compose = uncommentedLines(readRepo("docker-compose.dev.yml")).join("\n")
+  assert.match(compose, /image:\s*search-web:dev/)
+  assert.match(compose, /context:\s*\.\/web/)
+  assert.match(compose, /VITE_API_PROXY_TARGET:\s*http:\/\/agent:8787/)
+  assert.match(compose, /\.\/web:\/app/)
+  assert.match(compose, /web_node_modules:\/app\/node_modules/)
+  assert.match(compose, /127\.0\.0\.1:\$\{WEB_PORT:-5173\}:5173/)
+})
+
+test("vite API proxy can target compose agent DNS", () => {
+  const vite = readRepo("web/vite.config.ts")
+  assert.match(vite, /process\.env\.VITE_API_PROXY_TARGET/)
+  assert.match(vite, /http:\/\/127\.0\.0\.1:8787/)
+})
+
+test("web Dockerfile installs lockfile deps and runs Vite", () => {
+  const dockerfile = uncommentedLines(readRepo("web/Dockerfile")).join("\n")
+  assert.match(dockerfile, /FROM node:24-bookworm-slim/)
+  assert.match(dockerfile, /npm ci/)
+  assert.match(dockerfile, /npm", "run", "dev"/)
+  assert.match(dockerfile, /--host", "0\.0\.0\.0"/)
+})
+
 test("PR test workflow triggers on pull_request opened/synchronize/reopened", () => {
   const workflow = readRepo(".github/workflows/test.yml")
   assert.match(workflow, /^on:\s*$/m)

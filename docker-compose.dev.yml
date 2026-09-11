@@ -1,5 +1,5 @@
-# 本地 Docker 开发覆盖层：仅 agent 使用当前工作树构建；websearch 仍沿用基础清单的远程镜像。
-# 构建时传入当前 git 身份（镜像内没有 .git）：
+# 本地 Docker 开发覆盖层：agent 与前端 web 使用当前工作树构建；websearch 仍沿用基础清单的远程镜像。
+# 构建时传入当前 git 身份（agent 镜像内没有 .git）：
 #   GIT_VERSION=$(git describe --tags --always --dirty) GIT_REVISION=$(git rev-parse HEAD) \
 #     docker compose -f docker-compose.yml -f docker-compose.dev.yml up --build
 services:
@@ -11,3 +11,34 @@ services:
         GIT_REVISION: ${GIT_REVISION:-}
         GIT_VERSION: ${GIT_VERSION:-}
     pull_policy: build
+
+  web:
+    image: search-web:dev
+    build:
+      context: ./web
+    pull_policy: build
+    container_name: search-web
+    restart: unless-stopped
+    ports:
+      # 默认只绑本机，与 agent / websearch 一致
+      - "127.0.0.1:${WEB_PORT:-5173}:5173"
+    volumes:
+      # 源码热更新；Linux node_modules 放命名卷，避免 Windows 宿主目录混入
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    environment:
+      # 浏览器仍打同源 /api；容器内 Vite 转到 compose DNS 上的 agent
+      VITE_API_PROXY_TARGET: http://agent:8787
+      CHOKIDAR_USEPOLLING: "true"
+    depends_on:
+      agent:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+
+volumes:
+  web_node_modules:

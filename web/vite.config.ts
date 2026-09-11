@@ -8,12 +8,14 @@ const rootDir = fileURLToPath(new URL(".", import.meta.url))
 
 const apiProxy = {
   "/api": {
-    target: "http://127.0.0.1:8787",
+    target: process.env.VITE_API_PROXY_TARGET ?? "http://127.0.0.1:8787",
     changeOrigin: true,
     timeout: 3_600_000,
     proxyTimeout: 3_600_000,
   },
 }
+
+const usePolling = process.env.CHOKIDAR_USEPOLLING === "true"
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
@@ -25,6 +27,7 @@ export default defineConfig({
   server: {
     port: 5173,
     proxy: apiProxy,
+    ...(usePolling ? { watch: { usePolling: true } } : {}),
   },
   preview: {
     port: 4173,

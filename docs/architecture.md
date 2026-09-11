@@ -178,8 +178,9 @@ web/                         Vite + React + shadcn 前端（开发时代理到 :
 opencode.jsonc               内嵌 opencode：网关、MCP、agent
 prompts/hanhua-search.md     检索提示词
 Dockerfile                   只构建 agent
+web/Dockerfile               前端 Vite 开发镜像
 docker-compose.yml           拉 agent + websearch 镜像
-docker-compose.dev.yml       本地开发：覆盖 agent 为当前工作树构建
+docker-compose.dev.yml       本地构建 agent + web
 deploy/nginx/                静态 dist + /api 反代片段
 ```
 Docker 下 agent 等 websearch healthy 后再起，MCP 地址是 `http://websearch:8338/mcp`。websearch 的监听地址写在挂载的 `websearch.config.yaml`（`host: "0.0.0.0"`），不要用 `APP_HOST`。模型用环境变量 `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL`，不绑死厂商。
