@@ -43,6 +43,8 @@ export type Source = {
   kind: "official" | "fan-translation" | "database" | "forum" | "other"
 }
 
+export type BranchStatus = "confirmed" | "not_found" | "unknown"
+
 export type SearchResult = {
   verdict: "official" | "fan" | "both" | "none" | "uncertain"
   confidence: "high" | "medium" | "low"
@@ -53,13 +55,13 @@ export type SearchResult = {
     type: "novel" | "manga" | "other"
   }
   official: {
-    exists: boolean
+    status: BranchStatus
     publisher?: string
     regions?: string[]
     evidence?: string
   }
   fan: {
-    exists: boolean
+    status: BranchStatus
     translations: Translation[]
   }
   sources: Source[]

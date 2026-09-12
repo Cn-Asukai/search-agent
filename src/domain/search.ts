@@ -32,6 +32,8 @@ export const workTypeLabels: Record<WorkType, string> = {
 
 export const Verdict = Schema.Literals(["official", "fan", "both", "none", "uncertain"])
 export const Confidence = Schema.Literals(["high", "medium", "low"])
+export const BranchStatus = Schema.Literals(["confirmed", "not_found", "unknown"])
+export type BranchStatus = Schema.Schema.Type<typeof BranchStatus>
 
 export const Translation = Schema.Struct({
   group: Schema.optional(Schema.String),
@@ -60,13 +62,13 @@ export const SearchResult = Schema.Struct({
     type: Schema.Literals(["novel", "manga", "other"]),
   }),
   official: Schema.Struct({
-    exists: Schema.Boolean,
+    status: BranchStatus,
     publisher: Schema.optional(Schema.String),
     regions: Schema.optional(Schema.Array(Schema.String)),
     evidence: Schema.optional(Schema.String),
   }),
   fan: Schema.Struct({
-    exists: Schema.Boolean,
+    status: BranchStatus,
     translations: Schema.Array(Translation),
   }),
   sources: Schema.Array(Source),
@@ -75,14 +77,17 @@ export const SearchResult = Schema.Struct({
 
 export type SearchResult = Schema.Schema.Type<typeof SearchResult>
 
-/** A verified source category determines the public verdict; uncertainty only applies when neither category is confirmed. */
+/** Confirmed branches determine the public verdict; unknown must not collapse to none. */
 export function reconcileVerdict(result: SearchResult): SearchResult {
-  if (!result.official.exists && !result.fan.exists) return result
-
-  const verdict = result.official.exists
-    ? result.fan.exists ? "both" : "official"
-    : "fan"
-
+  const official = result.official.status === "confirmed"
+  const fan = result.fan.status === "confirmed"
+  const verdict: SearchResult["verdict"] = official
+    ? (fan ? "both" : "official")
+    : fan
+      ? "fan"
+      : result.official.status === "not_found" && result.fan.status === "not_found"
+        ? "none"
+        : "uncertain"
   return result.verdict === verdict ? result : { ...result, verdict }
 }
 
@@ -186,7 +191,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     verdict: {
       type: "string",
       enum: ["official", "fan", "both", "none", "uncertain"],
-      description: "official=已确认官方中文;fan=已确认民间汉化;both=两者都已确认;none=本次检索范围内未发现;uncertain=两类都无法确认。official.exists 或 fan.exists 为 true 时必须分别填 official、fan 或 both。",
+      description: "official=已确认官方中文;fan=已确认民间汉化;both=两者都已确认;none=本次检索范围内未发现;uncertain=两类都无法确认。official.status 或 fan.status 为 confirmed 时必须分别填 official、fan 或 both。",
     },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     work: {
@@ -203,9 +208,9 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     official: {
       type: "object",
       additionalProperties: false,
-      required: ["exists"],
+      required: ["status"],
       properties: {
-        exists: { type: "boolean", description: "为 true 时 sources 至少一条真实 URL" },
+        status: { type: "string", enum: ["confirmed", "not_found", "unknown"], description: "confirmed=已确认存在;not_found=本次未发现;unknown=尚未确认或检索受阻。confirmed 时 sources 至少一条真实 URL" },
         publisher: { type: "string" },
         regions: { type: "array", items: { type: "string" } },
         evidence: { type: "string" },
@@ -214,9 +219,9 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     fan: {
       type: "object",
       additionalProperties: false,
-      required: ["exists", "translations"],
+      required: ["status", "translations"],
       properties: {
-        exists: { type: "boolean", description: "为 true 时 sources 至少一条真实检索/抓取过的 URL;禁止编造链接" },
+        status: { type: "string", enum: ["confirmed", "not_found", "unknown"], description: "confirmed=已确认存在;not_found=本次未发现;unknown=尚未确认或检索受阻。confirmed 时 sources 至少一条真实检索/抓取过的 URL;禁止编造链接" },
         translations: {
           type: "array",
           items: {
@@ -236,7 +241,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     },
     sources: {
       type: "array",
-      description: "可核查来源。fan.exists 为 true 时至少一条真实 URL;每条 url 必须是实际检索/抓取过的页面,禁止编造",
+      description: "可核查来源。fan.status 为 confirmed 时至少一条真实 URL;每条 url 必须是实际检索/抓取过的页面,禁止编造",
       items: {
         type: "object",
         additionalProperties: false,

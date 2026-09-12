@@ -567,7 +567,7 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
         <div className="grid gap-4 md:grid-cols-2">
           <div>
             <h3 className="mb-2 text-sm font-medium">官方中文</h3>
-            {view.official?.exists ? (
+            {view.official?.status === "confirmed" ? (
               <ul className="space-y-1 text-sm">
                 {view.official.publisher ? <li>出版社：{view.official.publisher}</li> : null}
                 {view.official.regions?.length ? <li>地区：{view.official.regions.join("、")}</li> : null}
@@ -576,12 +576,15 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
                 ) : null}
               </ul>
             ) : (
-              <p className="text-sm text-muted-foreground">未发现官方中文</p>
+              <p className="text-sm text-muted-foreground">
+                {view.official?.status === "not_found" ? "本次未发现官方中文" : "尚未确认"}
+              </p>
             )}
           </div>
           <div>
             <h3 className="mb-2 text-sm font-medium">民间汉化</h3>
-            {view.fan?.exists && view.fan.translations.length > 0 ? (
+            {view.fan?.status === "confirmed" ? (
+              view.fan.translations.length > 0 ? (
               <ul className="space-y-2 text-sm">
                 {view.fan.translations.map((item, index) => (
                   <li key={`${item.group ?? ""}-${item.status}-${item.source_url ?? index}`}>
@@ -597,8 +600,13 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
                   </li>
                 ))}
               </ul>
+              ) : (
+                <p className="text-sm">已确认</p>
+              )
             ) : (
-              <p className="text-sm text-muted-foreground">未发现民间汉化</p>
+              <p className="text-sm text-muted-foreground">
+                {view.fan?.status === "not_found" ? "本次未发现民间汉化" : "尚未确认"}
+              </p>
             )}
           </div>
         </div>

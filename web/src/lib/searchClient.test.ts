@@ -43,8 +43,8 @@ describe("SSE framing (encodeSse shape)", () => {
         verdict: "both",
         confidence: "high",
         work: { original_title: "転生したら剣でした", type: "novel" },
-        official: { exists: true, publisher: "东立出版社" },
-        fan: { exists: true, translations: [] },
+        official: { status: "confirmed", publisher: "东立出版社" },
+        fan: { status: "confirmed", translations: [] },
         sources: [{ url: "https://example.com", kind: "database" }],
         summary: "官方与民间均有",
       },
@@ -59,8 +59,8 @@ describe("SSE framing (encodeSse shape)", () => {
     const view = mapTaskToView(resultEv?.data as Task)
     expect(view.kind).toBe("result")
     expect(view.verdict).toBe("both")
-    expect(view.official?.exists).toBe(true)
-    expect(view.fan?.exists).toBe(true)
+    expect(view.official?.status).toBe("confirmed")
+    expect(view.fan?.status).toBe("confirmed")
     expect(view.sources?.[0]?.url).toBe("https://example.com")
     expect(view.summary).toBe("官方与民间均有")
   })
@@ -110,9 +110,9 @@ describe("shipped search client against HTTP SSE stub", () => {
     expect(progressMessages).toContain("正在联网搜索")
     expect(session.view?.kind).toBe("result")
     expect(session.view?.verdict).toBe("both")
-    expect(session.view?.official?.exists).toBe(true)
+    expect(session.view?.official?.status).toBe("confirmed")
     expect(session.view?.official?.publisher).toBe("东立出版社")
-    expect(session.view?.fan?.exists).toBe(true)
+    expect(session.view?.fan?.status).toBe("confirmed")
     expect(session.view?.fan?.translations?.[0]?.source_url).toContain("http")
     expect(session.view?.sources?.some((s) => s.url.startsWith("http"))).toBe(true)
     expect(session.view?.summary).toMatch(/官方中文/)
@@ -153,8 +153,8 @@ describe("shipped search client against HTTP SSE stub", () => {
           verdict: "none",
           confidence: "low",
           work: { original_title: "ping-after-result", type: "novel" },
-          official: { exists: false },
-          fan: { exists: false, translations: [] },
+          official: { status: "not_found" },
+          fan: { status: "not_found", translations: [] },
           sources: [{ url: "https://example.com/src", kind: "other" }],
           summary: "无中文版本",
         },
@@ -199,8 +199,8 @@ describe("shipped search client against HTTP SSE stub", () => {
     expect(fetched.result?.verdict).toBe("both")
     expect(fetched.result?.summary).toMatch(/ソードアート/)
     const view = mapTaskToView(fetched)
-    expect(view.official?.exists).toBe(true)
-    expect(view.fan?.exists).toBe(true)
+    expect(view.official?.status).toBe("confirmed")
+    expect(view.fan?.status).toBe("confirmed")
   })
 
   it("GET /api/health returns service status", async () => {
@@ -375,8 +375,8 @@ describe("search client HTTP classification and resume", () => {
         verdict: "none",
         confidence: "low",
         work: { original_title: "202-query", type: "novel" },
-        official: { exists: false },
-        fan: { exists: false, translations: [] },
+        official: { status: "not_found" },
+        fan: { status: "not_found", translations: [] },
         sources: [{ url: "https://example.com/src", kind: "other" }],
         summary: "无中文版本",
       },
