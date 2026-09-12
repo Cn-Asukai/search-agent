@@ -177,6 +177,7 @@ src/services/appVersion.ts   /api/health 的 version / revision
 web/                         Vite + React + shadcn 前端（开发时代理到 :8787）
 opencode.jsonc               内嵌 opencode：网关、MCP、agent
 prompts/hanhua-search.md     检索提示词
+docs/hanhua-search-optimization.md  检索精确度 / 覆盖 / 效率优化方向
 Dockerfile                   只构建 agent
 docker-compose.yml           拉 agent + websearch 镜像
 docker-compose.dev.yml       本地开发：覆盖 agent 为当前工作树构建
