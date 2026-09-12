@@ -19,7 +19,7 @@ const sampleResult: SearchResult = {
   work: { original_title: "転生したら剣でした", type: "novel" },
   official: { status: "confirmed", publisher: "东立出版社" },
   fan: { status: "not_found", translations: [] },
-  sources: [{ url: "https://example.test/official", kind: "official" }],
+  sources: [{ url: "https://example.test/official", kind: "official", supports: ["official"] }],
   summary: "存在官方中文",
 }
 

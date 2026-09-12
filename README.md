@@ -190,7 +190,7 @@ curl -N -X POST http://localhost:8787/api/search \
   "work": { "original_title": "転生したら剣でした", "chinese_title": "转生成为魔剑", "type": "novel" },
   "official": { "status": "confirmed", "publisher": "东立出版社", "regions": ["台湾"], "evidence": "…" },
   "fan": { "status": "confirmed", "translations": [ { "group": "…", "status": "completed", "source_url": "https://…" } ] },
-  "sources": [ { "url": "https://…", "kind": "database" } ],
+  "sources": [ { "url": "https://…", "kind": "database", "supports": ["identity"] } ],
   "summary": "……"
 }
 ```

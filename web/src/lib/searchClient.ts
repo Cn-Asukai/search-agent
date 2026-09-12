@@ -41,6 +41,7 @@ export type Source = {
   url: string
   site?: string
   kind: "official" | "fan-translation" | "database" | "forum" | "other"
+  supports: Array<"identity" | "official" | "fan" | "progress">
 }
 
 export type BranchStatus = "confirmed" | "not_found" | "unknown"
@@ -697,4 +698,11 @@ export const sourceKindLabels: Record<Source["kind"], string> = {
   database: "资料库",
   forum: "论坛",
   other: "其他",
+}
+
+export const sourceClaimLabels: Record<Source["supports"][number], string> = {
+  identity: "身份",
+  official: "官方中文",
+  fan: "民间汉化",
+  progress: "进度",
 }

@@ -27,6 +27,7 @@ import {
   errorViewFromUnknown,
   mapTaskToView,
   sourceKindLabels,
+  sourceClaimLabels,
   verdictLabels,
   workTypeLabels,
   type HealthInfo,
@@ -618,6 +619,9 @@ function Outcome({ view }: { view: MappedSearchView | null }) {
               {view.sources.map((source, index) => (
                 <li key={`${source.url}-${index}`} className="flex flex-wrap items-center gap-2">
                   <Badge variant="outline">{sourceKindLabels[source.kind] ?? source.kind}</Badge>
+                  {(source.supports ?? []).map((claim) => (
+                    <Badge key={claim} variant="secondary">{sourceClaimLabels[claim] ?? claim}</Badge>
+                  ))}
                   <SourceHref href={source.url}>
                     {source.title ?? source.site ?? decodeUrlForDisplay(source.url)}
                   </SourceHref>

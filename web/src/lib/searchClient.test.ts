@@ -45,7 +45,7 @@ describe("SSE framing (encodeSse shape)", () => {
         work: { original_title: "転生したら剣でした", type: "novel" },
         official: { status: "confirmed", publisher: "东立出版社" },
         fan: { status: "confirmed", translations: [] },
-        sources: [{ url: "https://example.com", kind: "database" }],
+        sources: [{ url: "https://example.com", kind: "database", supports: ["identity"] }],
         summary: "官方与民间均有",
       },
     })
@@ -155,7 +155,7 @@ describe("shipped search client against HTTP SSE stub", () => {
           work: { original_title: "ping-after-result", type: "novel" },
           official: { status: "not_found" },
           fan: { status: "not_found", translations: [] },
-          sources: [{ url: "https://example.com/src", kind: "other" }],
+          sources: [{ url: "https://example.com/src", kind: "other", supports: [] }],
           summary: "无中文版本",
         },
       }
@@ -377,7 +377,7 @@ describe("search client HTTP classification and resume", () => {
         work: { original_title: "202-query", type: "novel" },
         official: { status: "not_found" },
         fan: { status: "not_found", translations: [] },
-        sources: [{ url: "https://example.com/src", kind: "other" }],
+        sources: [{ url: "https://example.com/src", kind: "other", supports: [] }],
         summary: "无中文版本",
       },
     }

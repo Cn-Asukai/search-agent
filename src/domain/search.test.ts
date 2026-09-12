@@ -133,3 +133,27 @@ test("reconcileVerdict returns the same object when verdict already matches conf
   }
   assert.equal(reconcileVerdict(already), already)
 })
+
+test("source kind does not imply a claim; supports is required", () => {
+  const officialKindOnly = {
+    ...validResult,
+    sources: [{ url: "https://example.test/db", kind: "official" as const }],
+  }
+  assert.equal(Schema.decodeUnknownOption(SearchResult)(officialKindOnly)._tag, "None")
+
+  const bound = {
+    ...validResult,
+    official: { status: "confirmed" as const },
+    sources: [{
+      url: "https://example.test/db",
+      kind: "database" as const,
+      supports: ["identity", "official"] as const,
+    }],
+  }
+  const decoded = Schema.decodeUnknownOption(SearchResult)(bound)
+  assert.equal(decoded._tag, "Some")
+  if (decoded._tag === "Some") {
+    assert.equal(decoded.value.sources[0]?.supports.includes("fan"), false)
+    assert.ok(decoded.value.sources[0]?.supports.includes("official"))
+  }
+})

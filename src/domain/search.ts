@@ -44,12 +44,14 @@ export const Translation = Schema.Struct({
 })
 
 export const SourceKind = Schema.Literals(["official", "fan-translation", "database", "forum", "other"])
+export const SourceClaim = Schema.Literals(["identity", "official", "fan", "progress"])
 
 export const Source = Schema.Struct({
   title: Schema.optional(Schema.String),
   url: Schema.NonEmptyString,
   site: Schema.optional(Schema.String),
   kind: SourceKind,
+  supports: Schema.Array(SourceClaim),
 })
 
 export const SearchResult = Schema.Struct({
@@ -241,11 +243,11 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     },
     sources: {
       type: "array",
-      description: "可核查来源。fan.status 为 confirmed 时至少一条真实 URL;每条 url 必须是实际检索/抓取过的页面,禁止编造",
+      description: "可核查来源。每条须声明 supports 所支持的事实;kind 不能冒充支持关系。official.status 或 fan.status 为 confirmed 时，sources 中须有对应 official 或 fan 主张的真实 URL;禁止编造",
       items: {
         type: "object",
         additionalProperties: false,
-        required: ["url", "kind"],
+        required: ["url", "kind", "supports"],
         properties: {
           title: { type: "string" },
           url: { type: "string" },
@@ -253,6 +255,11 @@ export const searchResultJsonSchema: Record<string, unknown> = {
           kind: {
             type: "string",
             enum: ["official", "fan-translation", "database", "forum", "other"],
+          },
+          supports: {
+            type: "array",
+            description: "本页支持的事实。identity=作品身份;official=官方中文;fan=民间汉化;progress=翻译进度。同一来源可支持多项;官方来源不能自动证明民间",
+            items: { type: "string", enum: ["identity", "official", "fan", "progress"] },
           },
         },
       },

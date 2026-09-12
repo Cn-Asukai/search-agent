@@ -51,8 +51,8 @@ export function sampleResult(query: string): SearchResult {
       ],
     },
     sources: [
-      { title: "Bangumi", url: "https://bgm.tv/subject/1", site: "bgm.tv", kind: "database" },
-      { title: "东立", url: "https://www.tongli.com.tw/", site: "tongli.com.tw", kind: "official" },
+      { title: "Bangumi", url: "https://bgm.tv/subject/1", site: "bgm.tv", kind: "database", supports: ["identity"] },
+      { title: "东立", url: "https://www.tongli.com.tw/", site: "tongli.com.tw", kind: "official", supports: ["official"] },
     ],
     summary: `${query} 存在官方中文（东立）与民间汉化。`,
   }

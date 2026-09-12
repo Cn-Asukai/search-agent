@@ -332,3 +332,19 @@ test("parseResult migrates legacy exists booleans and does not treat false as un
   assert.equal(parseResult("{not json"), undefined)
   assert.equal(parseResult(null), undefined)
 })
+
+test("parseResult fills missing source supports so legacy JSON still loads", () => {
+  const raw = JSON.stringify({
+    verdict: "official",
+    confidence: "high",
+    work: { original_title: "x", type: "other" },
+    official: { status: "confirmed" },
+    fan: { status: "not_found", translations: [] },
+    sources: [{ url: "https://example.test/book", kind: "official" }],
+    summary: "官方",
+  })
+  const parsed = parseResult(raw)
+  assert.ok(parsed)
+  assert.deepEqual(parsed?.sources[0]?.supports, [])
+  assert.equal(parsed?.sources[0]?.url, "https://example.test/book")
+})

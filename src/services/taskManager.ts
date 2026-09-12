@@ -359,10 +359,18 @@ function migrateLegacyBranch(branch: unknown): unknown {
 function migrateLegacyExists(value: unknown): unknown {
   if (value == null || typeof value !== "object" || Array.isArray(value)) return value
   const rec = value as Record<string, unknown>
+  const sources = Array.isArray(rec.sources)
+    ? rec.sources.map((item) => {
+      if (item == null || typeof item !== "object" || Array.isArray(item)) return item
+      const source = item as Record<string, unknown>
+      return source.supports == null ? { ...source, supports: [] } : source
+    })
+    : rec.sources
   return {
     ...rec,
     official: migrateLegacyBranch(rec.official),
     fan: migrateLegacyBranch(rec.fan),
+    sources,
   }
 }
 
