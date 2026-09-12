@@ -79,7 +79,7 @@ export function hintEmbeddedError(err: unknown): string {
 
 export class OpenCodeOps extends Context.Service<OpenCodeOps, {
   readonly createSession: Effect.Effect<string, Error>
-  readonly submitSearch: (sessionID: string, request: SearchRequest) => Effect.Effect<void, Error>
+  readonly submitSearch: (sessionID: string, request: SearchRequest, knownFacts?: string) => Effect.Effect<void, Error>
   readonly getLatestAssistant: (
     sessionID: string,
   ) => Effect.Effect<{ readonly info: AssistantMessage; readonly parts: readonly unknown[] }, Error>
@@ -129,7 +129,7 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
       ),
     )
 
-    const submitSearch = (sessionID: string, request: SearchRequest) => {
+    const submitSearch = (sessionID: string, request: SearchRequest, knownFacts?: string) => {
       const started = Date.now()
       const payload = {
         sessionID,
@@ -138,7 +138,7 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
         parts: [
           {
             type: "text" as const,
-            text: buildUserMessage(request.query, request.type),
+            text: buildUserMessage(request.query, request.type, knownFacts),
           },
         ],
       }
@@ -234,21 +234,27 @@ export const OpenCodeOpsLive: Layer.Layer<OpenCodeOps, never, OpenCode | AppConf
 // 消息构造
 // ─────────────────────────────────────────────────────────────
 
-function buildUserMessage(query: string, type: SearchRequest["type"]): string {
+function buildUserMessage(query: string, type: SearchRequest["type"], knownFacts?: string): string {
   const labels: Record<SearchRequest["type"], string> = {
     novel: "轻小说",
     manga: "漫画",
     unknown: "未指定(轻小说/漫画均需排查)",
   }
-  return [
+  const lines = [
     "请检索以下作品的汉化信息:",
     "",
     `作品名/描述:${query}`,
     `类型:${labels[type]}`,
+  ]
+  if (knownFacts) {
+    lines.push("", "已知事实，进度与链接须复核，不得把已确认存在改成没有", knownFacts)
+  }
+  lines.push(
     "",
     "按系统提示词中的检索流程执行。全部检索完成后,最后一条回复必须是一个 JSON 对象(可放在 ```json 代码块中),不要在 JSON 之外写结论。JSON 必须符合下列 Schema:",
     JSON.stringify(searchResultJsonSchema),
-  ].join("\n")
+  )
+  return lines.join("\n")
 }
 
 // ─────────────────────────────────────────────────────────────

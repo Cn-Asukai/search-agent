@@ -10,6 +10,7 @@ import { OpenCode, OpenCodeOps } from "./opencode.js"
 import { SqliteLive } from "./sqlite.js"
 import { TaskManager, TaskManagerLive } from "./taskManager.js"
 import { SearchRunner, SearchRunnerLive } from "./searchRunner.js"
+import { WorkCacheLive } from "./workCache.js"
 
 type Ops = Context.Service.Shape<typeof OpenCodeOps>
 
@@ -70,12 +71,15 @@ function runnerLayer(
   ops: Layer.Layer<OpenCodeOps> = opsLayer(),
 ) {
   const config = configLive(taskTimeoutMs)
-  const tasks = TaskManagerLive.pipe(Layer.provideMerge(SqliteLive), Layer.provide(config))
+  const data = Layer.mergeAll(TaskManagerLive, WorkCacheLive).pipe(
+    Layer.provideMerge(SqliteLive),
+    Layer.provide(config),
+  )
   return SearchRunnerLive.pipe(
     Layer.provideMerge(ops),
     Layer.provideMerge(OpenCodeTest),
     Layer.provideMerge(EventBridgeLive),
-    Layer.provideMerge(tasks),
+    Layer.provideMerge(data),
     Layer.provide(config),
   )
 }

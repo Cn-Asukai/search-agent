@@ -47,6 +47,29 @@ const MigratorLive = SqliteMigrator.layer({
       yield* sql`CREATE INDEX IF NOT EXISTS idx_tasks_session_id ON tasks(session_id)`
       yield* sql`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`
     }),
+    "0002_work_facts": Effect.gen(function* () {
+      const sql = yield* SqlClient.SqlClient
+      yield* sql`
+        CREATE TABLE IF NOT EXISTS works (
+          id TEXT PRIMARY KEY,
+          original_title TEXT NOT NULL,
+          author TEXT,
+          type TEXT NOT NULL,
+          official_json TEXT NOT NULL,
+          fan_json TEXT NOT NULL,
+          checked_at INTEGER NOT NULL
+        )
+      `
+      yield* sql`
+        CREATE TABLE IF NOT EXISTS work_aliases (
+          alias TEXT NOT NULL,
+          type TEXT NOT NULL,
+          work_id TEXT NOT NULL,
+          source TEXT NOT NULL,
+          PRIMARY KEY(alias, type)
+        )
+      `
+    }),
   }),
 })
 

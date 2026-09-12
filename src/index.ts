@@ -8,6 +8,7 @@ import { EventBridge, EventBridgeLive, eventLoop } from "./services/eventBridge.
 import { TaskManager, TaskManagerLive, persistOpencodeTrace } from "./services/taskManager.js"
 import { SearchRunnerLive } from "./services/searchRunner.js"
 import { SqliteLive } from "./services/sqlite.js"
+import { WorkCacheLive } from "./services/workCache.js"
 import { RoutesLayer } from "./http.js"
 
 // ─────────────────────────────────────────────────────────────
@@ -22,12 +23,20 @@ const SqliteWithConfig = SqliteLive.pipe(Layer.provide(AppConfigLive))
 const TaskManagerWithDeps = TaskManagerLive.pipe(
   Layer.provide(Layer.mergeAll(AppConfigLive, SqliteWithConfig)),
 )
+const WorkCacheWithDeps = WorkCacheLive.pipe(Layer.provide(SqliteWithConfig))
 const OpenCodeOpsWithDeps = OpenCodeOpsLive.pipe(
   Layer.provide(Layer.mergeAll(OpenCodeWithConfig, AppConfigLive, TaskManagerWithDeps)),
 )
 const SearchRunnerWithDeps = SearchRunnerLive.pipe(
   Layer.provide(
-    Layer.mergeAll(OpenCodeWithConfig, OpenCodeOpsWithDeps, TaskManagerWithDeps, EventBridgeLive, AppConfigLive),
+    Layer.mergeAll(
+      OpenCodeWithConfig,
+      OpenCodeOpsWithDeps,
+      TaskManagerWithDeps,
+      WorkCacheWithDeps,
+      EventBridgeLive,
+      AppConfigLive,
+    ),
   ),
 )
 const ServicesLayer = Layer.mergeAll(
@@ -36,6 +45,7 @@ const ServicesLayer = Layer.mergeAll(
   OpenCodeOpsWithDeps,
   EventBridgeLive,
   TaskManagerWithDeps,
+  WorkCacheWithDeps,
   SearchRunnerWithDeps,
 )
 

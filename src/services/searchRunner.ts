@@ -9,6 +9,7 @@ import {
 } from "./opencode.js"
 import { waitSessionSettled } from "./sessionWait.js"
 import { TaskManager } from "./taskManager.js"
+import { WorkCache, type WorkFacts } from "./workCache.js"
 import type { AssistantMessage } from "@opencode-ai/sdk/v2"
 import type { SearchResult } from "../domain/search.js"
 
@@ -25,7 +26,7 @@ export class SearchRunner extends Context.Service<SearchRunner, {
 export const SearchRunnerLive: Layer.Layer<
   SearchRunner,
   never,
-  OpenCode | OpenCodeOps | TaskManager | EventBridge | AppConfig
+  OpenCode | OpenCodeOps | TaskManager | EventBridge | AppConfig | WorkCache
 > = Layer.effect(
   SearchRunner
 )(Effect.gen(function* () {
@@ -34,6 +35,7 @@ export const SearchRunnerLive: Layer.Layer<
     const tasks = yield* TaskManager
     const bridge = yield* EventBridge
     const config = yield* AppConfig
+    const cache = yield* WorkCache
     const launchedIds = new Set<string>()
 
     /** 监听某个 session 的事件(工具调用 → 进度),返回取消函数 */
@@ -89,6 +91,12 @@ export const SearchRunnerLive: Layer.Layer<
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
         yield* tasks.appendProgress(taskId, { kind: "status", message: "任务开始,正在创建检索会话" })
 
+        const cached = yield* cache.get(task.query, task.type)
+        const knownFacts = Option.isSome(cached) ? formatKnownFacts(cached.value) : undefined
+        if (knownFacts) {
+          yield* tasks.appendProgress(taskId, { kind: "status", message: "命中作品缓存" })
+        }
+
         const createStarted = Date.now()
         const sessionID = yield* ops.createSession
         console.log(`[search-runner] 会话已创建 task=${taskId} session=${sessionID}`)
@@ -117,7 +125,7 @@ export const SearchRunnerLive: Layer.Layer<
                 query: task.query,
                 type: task.type,
                 stream: false,
-              }).pipe(Effect.andThen(Effect.never)),
+              }, knownFacts).pipe(Effect.andThen(Effect.never)),
             ),
             Effect.ensuring(stopWatch()),
           )
@@ -145,6 +153,7 @@ export const SearchRunnerLive: Layer.Layer<
             console.log(`[search-runner] 完成 task=${taskId} session=${sessionID} verdict=${result.verdict}`)
             yield* tasks.appendProgress(taskId, { kind: "status", message: "检索完成,结论已生成" })
             yield* tasks.update(taskId, { status: "done", result, endedAt: Date.now() })
+            yield* cache.put(task.query, task.type, result)
             return
           }
 
@@ -209,3 +218,12 @@ export const SearchRunnerLive: Layer.Layer<
 
     return { launch }
   }))
+
+function formatKnownFacts(facts: WorkFacts): string {
+  const lines = [`原名:${facts.original_title}`]
+  if (facts.chinese_title) lines.push(`译名:${facts.chinese_title}`)
+  if (facts.author) lines.push(`作者:${facts.author}`)
+  lines.push(`官方:${JSON.stringify(facts.official)}`)
+  lines.push(`民间:${JSON.stringify(facts.fan)}`)
+  return lines.join("\n")
+}
