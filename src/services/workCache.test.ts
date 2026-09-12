@@ -115,7 +115,7 @@ test("not-found older than 7 days is ignored", async () => {
     assert.equal(Option.isSome(fresh), true)
 
     const stale = Date.now() - NOT_FOUND_TTL_MS - 1_000
-    yield* sql`UPDATE works SET checked_at = ${stale}`
+    yield* sql`UPDATE works SET checked_at = ${stale}`.pipe(Effect.orDie)
     const expired = yield* cache.get("无名之作", "manga")
     assert.equal(Option.isNone(expired), true)
   }))
