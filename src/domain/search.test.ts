@@ -129,7 +129,7 @@ test("reconcileVerdict returns the same object when verdict already matches conf
   const already = {
     ...validResult,
     verdict: "official" as const,
-    official: { status: "confirmed" },
+    official: { status: "confirmed" as const },
   }
   assert.equal(reconcileVerdict(already), already)
 })
