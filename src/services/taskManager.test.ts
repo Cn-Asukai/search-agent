@@ -297,3 +297,25 @@ test("appendTraceStep truncates to retention keeping newest", async () => {
     { traceStepRetention: 3 },
   )
 })
+
+test("create reuses queued or running task with same query and type", async () => {
+  await run(":memory:", Effect.gen(function* () {
+    const tasks = yield* TaskManager
+    const first = yield* tasks.create(" 同一作品 ", "novel")
+    const queuedAgain = yield* tasks.create("同一作品", "novel")
+    assert.equal(queuedAgain.id, first.id)
+    assert.equal(first.query, "同一作品")
+
+    const otherType = yield* tasks.create("同一作品", "manga")
+    assert.notEqual(otherType.id, first.id)
+
+    yield* tasks.update(first.id, { status: "running", startedAt: Date.now() })
+    const runningAgain = yield* tasks.create("同一作品", "novel")
+    assert.equal(runningAgain.id, first.id)
+
+    yield* tasks.update(first.id, { status: "done", endedAt: Date.now() })
+    const afterDone = yield* tasks.create("同一作品", "novel")
+    assert.notEqual(afterDone.id, first.id)
+    assert.equal(afterDone.status, "queued")
+  }))
+})

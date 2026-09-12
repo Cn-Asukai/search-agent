@@ -76,29 +76,45 @@ export const TaskManagerLive: Layer.Layer<TaskManager, never, AppConfig | SqlCli
     )
 
   const create = (query: string, type: WorkType) =>
-    Effect.gen(function* () {
-      const now = Date.now()
-      const task: Task = {
-        id: randomUUID(),
-        query,
-        type,
-        status: "queued",
-        createdAt: now,
-        updatedAt: now,
-        progress: [],
-      }
-      yield* sql`
-        INSERT INTO tasks (
-          id, query, type, status, created_at, updated_at,
-          started_at, ended_at, session_id, progress_json, result_json, error, opencode_trace
-        ) VALUES (
-          ${task.id}, ${task.query}, ${task.type}, ${task.status}, ${now}, ${now},
-          ${null}, ${null}, ${null}, ${"[]"}, ${null}, ${null}, ${null}
-        )
-      `.pipe(Effect.orDie)
-      yield* enforceTaskRetention.pipe(Effect.orDie)
-      return task
-    })
+    sql.withTransaction(
+      Effect.gen(function* () {
+        const normalizedQuery = query.trim()
+        const existing = yield* sql<TaskRow>`
+          SELECT id, query, type, status, created_at, updated_at, started_at, ended_at,
+                 session_id, progress_json, result_json, error
+          FROM tasks
+          WHERE query = ${normalizedQuery}
+            AND type = ${type}
+            AND status IN ('queued', 'running')
+          ORDER BY created_at ASC
+          LIMIT 1
+        `
+        const row = existing[0]
+        if (row) return rowToTask(row)
+
+        const now = Date.now()
+        const task: Task = {
+          id: randomUUID(),
+          query: normalizedQuery,
+          type,
+          status: "queued",
+          createdAt: now,
+          updatedAt: now,
+          progress: [],
+        }
+        yield* sql`
+          INSERT INTO tasks (
+            id, query, type, status, created_at, updated_at,
+            started_at, ended_at, session_id, progress_json, result_json, error, opencode_trace
+          ) VALUES (
+            ${task.id}, ${task.query}, ${task.type}, ${task.status}, ${now}, ${now},
+            ${null}, ${null}, ${null}, ${"[]"}, ${null}, ${null}, ${null}
+          )
+        `
+        yield* enforceTaskRetention
+        return task
+      }),
+    ).pipe(Effect.orDie)
 
   const update = (id: string, patch: Partial<Omit<Task, "id" | "progress">>) =>
     Effect.gen(function* () {

@@ -34,6 +34,7 @@ export const SearchRunnerLive: Layer.Layer<
     const tasks = yield* TaskManager
     const bridge = yield* EventBridge
     const config = yield* AppConfig
+    const launchedIds = new Set<string>()
 
     /** 监听某个 session 的事件(工具调用 → 进度),返回取消函数 */
     const watchSession = (
@@ -82,6 +83,7 @@ export const SearchRunnerLive: Layer.Layer<
         const taskOpt = yield* tasks.get(taskId)
         if (Option.isNone(taskOpt)) return
         const task = Option.getOrThrow(taskOpt)
+        if (task.status !== "queued" || task.sessionId) return
         console.log(`[search-runner] 开始 task=${taskId} type=${task.type} query=${task.query}`)
 
         yield* tasks.update(taskId, { status: "running", startedAt: Date.now() })
@@ -182,12 +184,18 @@ export const SearchRunnerLive: Layer.Layer<
       // 信号量限流:超出则排队(take/release 手动管理,避免 withPermits 的
       // uninterruptible 包裹导致内部计时器失效)
       Effect.gen(function* () {
+        if (launchedIds.has(taskId)) return
+        launchedIds.add(taskId)
+        const snapshot = yield* tasks.get(taskId)
+        if (Option.isNone(snapshot)) return
+        const current = snapshot.value
+        if (current.status !== "queued" || current.sessionId) return
         yield* tasks.semaphore.take(1)
         yield* runTask(taskId).pipe(
           Effect.catch((err) =>
             Effect.gen(function* () {
-              const current = yield* tasks.get(taskId)
-              const sessionId = Option.isSome(current) ? current.value.sessionId : undefined
+              const latest = yield* tasks.get(taskId)
+              const sessionId = Option.isSome(latest) ? latest.value.sessionId : undefined
               yield* abortThenMarkError(
                 taskId,
                 sessionId,

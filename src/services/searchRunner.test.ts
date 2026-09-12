@@ -259,3 +259,28 @@ test("abort RPC failure still marks the task error and releases the semaphore", 
     }),
   )
 })
+
+test("launch twice for the same task does not run search twice", async () => {
+  let sessions = 0
+  await run(
+    2_000,
+    Effect.gen(function* () {
+      const runner = yield* SearchRunner
+      const tasks = yield* TaskManager
+      const created = yield* tasks.create("dedup-launch", "novel")
+      yield* runner.launch(created.id)
+      yield* runner.launch(created.id)
+      const running = yield* pollTask(created.id, (t) => t.status === "running" && Boolean(t.sessionId))
+      yield* Effect.sleep(Duration.millis(80))
+      assert.equal(running.sessionId, "ses_1")
+      assert.equal(sessions, 1)
+    }),
+    opsLayer({
+      createSession: Effect.sync(() => {
+        sessions += 1
+        return `ses_${sessions}`
+      }),
+      submitSearch: () => Effect.never,
+    }),
+  )
+})
