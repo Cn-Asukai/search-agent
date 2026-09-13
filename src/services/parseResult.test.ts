@@ -7,8 +7,8 @@ const valid = {
   verdict: "uncertain",
   confidence: "low",
   work: { original_title: "aaa", type: "other" },
-  official: { exists: false },
-  fan: { exists: false, translations: [] },
+  official: { status: "unknown" },
+  fan: { status: "unknown", translations: [] },
   sources: [],
   summary: "无法确认该作品",
 }
@@ -25,22 +25,22 @@ test("derives a verdict from confirmed source categories", () => {
 
   const fanOnly = parseStructuredResult({
     ...valid,
-    official: { exists: false },
-    fan: { exists: true, translations: [translation] },
+    official: { status: "not_found" },
+    fan: { status: "confirmed", translations: [translation] },
   })
   assert.equal(fanOnly?.verdict, "fan")
 
   const officialOnly = parseStructuredResult({
     ...valid,
-    official: { exists: true },
-    fan: { exists: false, translations: [] },
+    official: { status: "confirmed" },
+    fan: { status: "not_found", translations: [] },
   })
   assert.equal(officialOnly?.verdict, "official")
 
   const both = parseStructuredResult({
     ...valid,
-    official: { exists: true },
-    fan: { exists: true, translations: [translation] },
+    official: { status: "confirmed" },
+    fan: { status: "confirmed", translations: [translation] },
   })
   assert.equal(both?.verdict, "both")
 })
@@ -49,8 +49,8 @@ test("strips JSON-schema nulls on optional fields", () => {
   const withNulls = {
     ...valid,
     work: { original_title: "aaa", chinese_title: null, author: null, type: "other" },
-    official: { exists: false, publisher: null, regions: null, evidence: null },
-    fan: { exists: false, translations: [] },
+    official: { status: "not_found", publisher: null, regions: null, evidence: null },
+    fan: { status: "not_found", translations: [] },
   }
   const parsed = parseStructuredResult(withNulls)
   assert.ok(parsed, "null optionals must not fail Schema decode")
@@ -109,5 +109,6 @@ test("LLM json schema has no anyOf or minLength (opencode message decode)", asyn
   const blob = JSON.stringify(searchResultJsonSchema)
   assert.equal(blob.includes("anyOf"), false)
   assert.equal(blob.includes("minLength"), false)
+  assert.equal(blob.includes("exists"), false)
   assert.equal(searchResultJsonSchema.type, "object")
 })

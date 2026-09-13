@@ -34,13 +34,13 @@ export function sampleResult(query: string): SearchResult {
       type: "novel",
     },
     official: {
-      exists: true,
+      status: "confirmed",
       publisher: "东立出版社",
       regions: ["台湾"],
       evidence: "台湾东立出版繁体中文版",
     },
     fan: {
-      exists: true,
+      status: "confirmed",
       translations: [
         {
           group: "某汉化组",

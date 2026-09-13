@@ -8,7 +8,7 @@ import { AppConfig } from "../env.js"
 import type { SearchResult } from "../domain/search.js"
 import { SqliteLive } from "./sqlite.js"
 import { STALE_TASK_ERROR } from "./sqlite.js"
-import { TaskManager, TaskManagerLive } from "./taskManager.js"
+import { TaskManager, TaskManagerLive, parseResult } from "./taskManager.js"
 
 type RetentionOverrides = {
   readonly taskRetention?: number
@@ -54,8 +54,8 @@ const sampleResult: SearchResult = {
   verdict: "none",
   confidence: "low",
   work: { original_title: "x", type: "other" },
-  official: { exists: false },
-  fan: { exists: false, translations: [] },
+  official: { status: "not_found" },
+  fan: { status: "not_found", translations: [] },
   sources: [],
   summary: "无",
 }
@@ -296,4 +296,39 @@ test("appendTraceStep truncates to retention keeping newest", async () => {
     }),
     { traceStepRetention: 3 },
   )
+})
+
+test("parseResult migrates legacy exists booleans and does not treat false as unknown", () => {
+  const oldTrue = JSON.stringify({
+    verdict: "official",
+    confidence: "high",
+    work: { original_title: "x", type: "other" },
+    official: { exists: true, publisher: "东立" },
+    fan: { exists: false, translations: [] },
+    sources: [],
+    summary: "官方",
+  })
+  const confirmed = parseResult(oldTrue)
+  assert.equal(confirmed?.official.status, "confirmed")
+  assert.equal(confirmed?.official.publisher, "东立")
+  assert.equal(confirmed?.fan.status, "not_found")
+  assert.equal(confirmed?.verdict, "official")
+
+  const oldFalse = JSON.stringify({
+    verdict: "uncertain",
+    confidence: "low",
+    work: { original_title: "x", type: "other" },
+    official: { exists: false },
+    fan: { exists: false, translations: [] },
+    sources: [],
+    summary: "无",
+  })
+  const notFound = parseResult(oldFalse)
+  assert.equal(notFound?.official.status, "not_found")
+  assert.equal(notFound?.fan.status, "not_found")
+  assert.notEqual(notFound?.official.status, "unknown")
+  assert.notEqual(notFound?.fan.status, "unknown")
+
+  assert.equal(parseResult("{not json"), undefined)
+  assert.equal(parseResult(null), undefined)
 })

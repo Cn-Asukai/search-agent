@@ -346,10 +346,30 @@ function parseTraceJson(raw: string | null, sessionId: string): { sessionId: str
   }
 }
 
-function parseResult(raw: string | null): SearchResult | undefined {
+function migrateLegacyBranch(branch: unknown): unknown {
+  if (branch == null || typeof branch !== "object" || Array.isArray(branch)) return branch
+  const rec = { ...(branch as Record<string, unknown>) }
+  if (rec.status == null && typeof rec.exists === "boolean") {
+    rec.status = rec.exists ? "confirmed" : "not_found"
+  }
+  delete rec.exists
+  return rec
+}
+
+function migrateLegacyExists(value: unknown): unknown {
+  if (value == null || typeof value !== "object" || Array.isArray(value)) return value
+  const rec = value as Record<string, unknown>
+  return {
+    ...rec,
+    official: migrateLegacyBranch(rec.official),
+    fan: migrateLegacyBranch(rec.fan),
+  }
+}
+
+export function parseResult(raw: string | null): SearchResult | undefined {
   if (!raw) return undefined
   try {
-    const decoded = Schema.decodeUnknownOption(SearchResult)(JSON.parse(raw))
+    const decoded = Schema.decodeUnknownOption(SearchResult)(migrateLegacyExists(JSON.parse(raw)))
     return decoded._tag === "Some" ? decoded.value : undefined
   } catch {
     return undefined

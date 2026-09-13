@@ -17,8 +17,8 @@ const sampleResult: SearchResult = {
   verdict: "official",
   confidence: "high",
   work: { original_title: "転生したら剣でした", type: "novel" },
-  official: { exists: true, publisher: "东立出版社" },
-  fan: { exists: false, translations: [] },
+  official: { status: "confirmed", publisher: "东立出版社" },
+  fan: { status: "not_found", translations: [] },
   sources: [{ url: "https://example.test/official", kind: "official" }],
   summary: "存在官方中文",
 }
@@ -142,7 +142,7 @@ test("SearchRunner writes done when injected ops settle with a structured result
     const done = yield* pollTask(created.id, (t) => t.status === "done" || t.status === "error")
     assert.equal(done.status, "done")
     assert.equal(done.result?.verdict, "official")
-    assert.equal(done.result?.official.exists, true)
+    assert.equal(done.result?.official.status, "confirmed")
     assert.equal(done.sessionId, "ses_test")
     assert.ok(done.endedAt)
   }))
