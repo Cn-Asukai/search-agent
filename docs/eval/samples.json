@@ -1,0 +1,127 @@
+[
+  {
+    "id": "sao-novel",
+    "query": "ソードアート・オンライン",
+    "type": "novel",
+    "difficulty": "easy",
+    "identity": {
+      "original_title": "ソードアート・オンライン",
+      "medium": "novel",
+      "disambiguation": "轻小说原作，不是动画"
+    },
+    "official": "confirmed",
+    "fan": "unknown",
+    "notes": "热门轻小说，官方中文出版较容易核实。民间汉化是否仍可获取未在本样本中核实。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "身份与官方出版线索；未完整核对民间分支"
+  },
+  {
+    "id": "tenken-novel",
+    "query": "転生したら剣でした",
+    "type": "novel",
+    "difficulty": "easy",
+    "identity": {
+      "original_title": "転生したら剣でした",
+      "medium": "novel"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "仓库示例查询。本样本只固定身份，官方/民间期望待人工核实后改 confirmed/not_found。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "未做出版与汉化页核对"
+  },
+  {
+    "id": "tenken-manga",
+    "query": "転生したら剣でした",
+    "type": "manga",
+    "difficulty": "medium",
+    "identity": {
+      "original_title": "転生したら剣でした",
+      "medium": "manga",
+      "disambiguation": "漫画改编，证据不得从小说中文版直接推断"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "与 tenken-novel 对照：同一查询词、不同 type。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "未做漫画侧出版与汉化核对"
+  },
+  {
+    "id": "unknown-type-split",
+    "query": "転生したら剣でした",
+    "type": "unknown",
+    "difficulty": "medium",
+    "identity": {
+      "original_title": "転生したら剣でした",
+      "medium": "unknown",
+      "disambiguation": "摘要须分别说明小说与漫画"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "用来看类型未指定时是否把两个媒介混成一个结论。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "行为样本，不做版本真值"
+  },
+  {
+    "id": "english-only-not-fan",
+    "query": "That Time I Got Reincarnated as a Sword",
+    "type": "novel",
+    "difficulty": "medium",
+    "identity": {
+      "original_title": "転生したら剣でした",
+      "medium": "novel",
+      "disambiguation": "英文俗名；英文翻译组不算汉化"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "若只命中英文翻译，fan 不得为 confirmed。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "未核实是否另有中文民间翻译"
+  },
+  {
+    "id": "same-title-needs-author",
+    "query": "ゴースト",
+    "type": "unknown",
+    "difficulty": "hard",
+    "identity": {
+      "original_title": "unknown",
+      "medium": "unknown",
+      "disambiguation": "短标题、同名多部；标题精确一致不得直接确认身份"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "期望系统先消歧或 uncertain，而不是随便认一部。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "身份消歧样本"
+  },
+  {
+    "id": "license-not-release",
+    "query": "获授权但未确认已发行的占位样本",
+    "type": "manga",
+    "difficulty": "hard",
+    "identity": {
+      "original_title": "unknown",
+      "medium": "manga"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "待替换为真实「已授权未上市」作品。在替换前不计入精确率/召回率。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "占位，无真值"
+  },
+  {
+    "id": "aggregator-official-reprint",
+    "query": "聚合站转载官方译本占位样本",
+    "type": "manga",
+    "difficulty": "hard",
+    "identity": {
+      "original_title": "unknown",
+      "medium": "manga"
+    },
+    "official": "unknown",
+    "fan": "unknown",
+    "notes": "待替换为真实「聚合站能看但是官方译本」作品。用来测来源分类，禁止把能看当成民间汉化。",
+    "checked_at": "2026-09-12",
+    "checked_scope": "占位，无真值"
+  }
+]
