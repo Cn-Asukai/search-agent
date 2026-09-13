@@ -56,7 +56,7 @@
       "mode": "all",
       "prompt": "{file:./prompts/hanhua-search.md}",
       "temperature": 0.1,
-      "steps": 8,
+      "steps": 8, // 检索步数预算，须与提示词搜索轮次一致
       "permission": {
         "edit": "deny",
         "bash": "deny",
