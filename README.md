@@ -7,7 +7,7 @@
                                                                 └──▶ LLM(自定义网关)
 ```
 
-架构与模块依赖见 [`docs/architecture.md`](docs/architecture.md)。
+架构与模块依赖见 [`docs/architecture.md`](docs/architecture.md)。检索精确度 / 覆盖 / 效率的优化方向见 [`docs/hanhua-search-optimization.md`](docs/hanhua-search-optimization.md)。
 
 ## 前置安装
 
@@ -239,5 +239,6 @@ curl -N -X POST http://localhost:8787/api/search \
 │   └── services/             # sqlite / opencode / 事件桥 / 任务表 / 检索编排
 ├── web/                      # Vite + React + shadcn 前端（代理到 :8787；含开发 Dockerfile）
 ├── docs/architecture.md      # 架构与 mermaid 依赖图
+├── docs/hanhua-search-optimization.md  # 汉化检索优化方向
 └── .env.example
 ```
