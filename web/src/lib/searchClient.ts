@@ -682,10 +682,10 @@ export function createSearchClient(config: SearchClientConfig = {}) {
 }
 
 export const verdictLabels: Record<SearchResult["verdict"], string> = {
-  official: "仅官方中文",
-  fan: "仅民间汉化",
-  both: "官方与民间均有",
-  none: "暂无中文版本",
+  official: "已确认官方中文",
+  fan: "已确认民间汉化",
+  both: "官方与民间均已确认",
+  none: "本次未发现中文版本",
   uncertain: "无法确定",
 }
 

@@ -186,7 +186,7 @@ curl -N -X POST http://localhost:8787/api/search \
 
 ```jsonc
 {
-  "verdict": "both",          // official 仅官方中文 | fan 仅民间汉化 | both 均有 | none 均无 | uncertain 无法确定
+  "verdict": "both",          // official 已确认官方中文 | fan 已确认民间汉化 | both 官方与民间均已确认 | none 本次未发现中文版本 | uncertain 无法确定
   "confidence": "high",
   "work": { "original_title": "転生したら剣でした", "chinese_title": "转生成为魔剑", "type": "novel" },
   "official": { "exists": true, "publisher": "东立出版社", "regions": ["台湾"], "evidence": "…" },

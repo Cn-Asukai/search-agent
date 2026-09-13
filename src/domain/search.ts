@@ -186,7 +186,7 @@ export const searchResultJsonSchema: Record<string, unknown> = {
     verdict: {
       type: "string",
       enum: ["official", "fan", "both", "none", "uncertain"],
-      description: "official=仅官方中文;fan=仅民间汉化;both=两者都有;none=两者均无;uncertain=两类都无法确认。official.exists 或 fan.exists 为 true 时必须分别填 official、fan 或 both。",
+      description: "official=已确认官方中文;fan=已确认民间汉化;both=两者都已确认;none=本次检索范围内未发现;uncertain=两类都无法确认。official.exists 或 fan.exists 为 true 时必须分别填 official、fan 或 both。",
     },
     confidence: { type: "string", enum: ["high", "medium", "low"] },
     work: {
